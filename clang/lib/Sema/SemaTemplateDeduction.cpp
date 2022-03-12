@@ -1358,7 +1358,7 @@ static Sema::TemplateDeductionResult DeduceTemplateArgumentsByTypeMatch(
     if (ARef)
       A = A->getPointeeType();
 
-    if (PRef && ARef && S.Context.hasSameUnqualifiedType(P, A)) {
+    if (PRef && ARef) {
       // C++11 [temp.deduct.partial]p9:
       //   If, for a given type, deduction succeeds in both directions (i.e.,
       //   the types are identical after the transformations above) and both
