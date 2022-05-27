@@ -1396,10 +1396,9 @@ HexagonTargetLowering::LowerToTLSGeneralDynamicModel(GlobalAddressSDNode *GA,
   Chain = DAG.getCopyToReg(DAG.getEntryNode(), dl, Hexagon::R0, Chain, InFlag);
   InFlag = Chain.getValue(1);
 
-  unsigned Flags =
-      static_cast<const HexagonSubtarget &>(DAG.getSubtarget()).useLongCalls()
-          ? HexagonII::MO_GDPLT | HexagonII::HMOTF_ConstExtended
-          : HexagonII::MO_GDPLT;
+  unsigned Flags = DAG.getSubtarget<HexagonSubtarget>().useLongCalls()
+                       ? HexagonII::MO_GDPLT | HexagonII::HMOTF_ConstExtended
+                       : HexagonII::MO_GDPLT;
 
   return GetDynamicTLSAddr(DAG, Chain, GA, InFlag, PtrVT,
                            Hexagon::R0, Flags);
@@ -3666,9 +3665,12 @@ HexagonTargetLowering::shouldExpandAtomicLoadInIR(LoadInst *LI) const {
              : AtomicExpansionKind::None;
 }
 
-bool HexagonTargetLowering::shouldExpandAtomicStoreInIR(StoreInst *SI) const {
+TargetLowering::AtomicExpansionKind
+HexagonTargetLowering::shouldExpandAtomicStoreInIR(StoreInst *SI) const {
   // Do not expand loads and stores that don't exceed 64 bits.
-  return SI->getValueOperand()->getType()->getPrimitiveSizeInBits() > 64;
+  return SI->getValueOperand()->getType()->getPrimitiveSizeInBits() > 64
+             ? AtomicExpansionKind::Expand
+             : AtomicExpansionKind::None;
 }
 
 TargetLowering::AtomicExpansionKind

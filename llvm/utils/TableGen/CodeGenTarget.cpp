@@ -552,7 +552,7 @@ void CodeGenTarget::reverseBitsForLittleEndianEncoding() {
       NewBits[middle] = BI->getBit(middle);
     }
 
-    BitsInit *NewBI = BitsInit::get(NewBits);
+    BitsInit *NewBI = BitsInit::get(Records, NewBits);
 
     // Update the bits in reversed order so that emitInstrOpBits will get the
     // correct endianness.
@@ -663,6 +663,7 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R,
   isCommutative = false;
   canThrow = false;
   isNoReturn = false;
+  isNoCallback = false;
   isNoSync = false;
   isNoFree = false;
   isWillReturn = false;
@@ -861,6 +862,8 @@ void CodeGenIntrinsic::setProperty(Record *R) {
     isConvergent = true;
   else if (R->getName() == "IntrNoReturn")
     isNoReturn = true;
+  else if (R->getName() == "IntrNoCallback")
+    isNoCallback = true;
   else if (R->getName() == "IntrNoSync")
     isNoSync = true;
   else if (R->getName() == "IntrNoFree")

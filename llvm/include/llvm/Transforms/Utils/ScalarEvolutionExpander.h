@@ -15,7 +15,6 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Analysis/InstSimplifyFolder.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -449,13 +448,8 @@ private:
   /// Determine the most "relevant" loop for the given SCEV.
   const Loop *getRelevantLoop(const SCEV *);
 
-  Value *expandSMaxExpr(const SCEVNAryExpr *S);
-
-  Value *expandUMaxExpr(const SCEVNAryExpr *S);
-
-  Value *expandSMinExpr(const SCEVNAryExpr *S);
-
-  Value *expandUMinExpr(const SCEVNAryExpr *S);
+  Value *expandMinMaxExpr(const SCEVNAryExpr *S, Intrinsic::ID IntrinID,
+                          Twine Name, bool IsSequential = false);
 
   Value *visitConstant(const SCEVConstant *S) { return S->getValue(); }
 

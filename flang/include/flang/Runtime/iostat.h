@@ -63,6 +63,17 @@ enum Iostat {
   IostatFormattedChildOnUnformattedParent,
   IostatChildInputFromOutputParent,
   IostatChildOutputToInputParent,
+  IostatShortRead,
+  IostatMissingTerminator,
+  IostatBadUnformattedRecord,
+  IostatUTF8Decoding,
+  IostatUnitOverflow,
+  IostatBadRealInput,
+  IostatBadScaleFactor,
+  IostatBadAsynchronous,
+  IostatBadWaitUnit,
+  IostatBOZInputOverflow,
+  IostatIntegerInputOverflow,
 };
 
 const char *IostatErrorString(int);

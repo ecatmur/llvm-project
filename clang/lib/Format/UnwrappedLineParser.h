@@ -92,11 +92,13 @@ private:
   void reset();
   void parseFile();
   bool precededByCommentOrPPDirective() const;
-  bool parseLevel(bool HasOpeningBrace, bool CanContainBracedList,
+  bool parseLevel(const FormatToken *OpeningBrace, bool CanContainBracedList,
                   IfStmtKind *IfKind = nullptr,
                   TokenType NextLBracesType = TT_Unknown);
+  bool mightFitOnOneLine(UnwrappedLine &Line,
+                         const FormatToken *OpeningBrace = nullptr) const;
   IfStmtKind parseBlock(bool MustBeDeclaration = false, unsigned AddLevels = 1u,
-                        bool MunchSemi = true,
+                        bool MunchSemi = true, bool KeepBraces = true,
                         bool UnindentWhitesmithsBraces = false,
                         bool CanContainBracedList = true,
                         TokenType NextLBracesType = TT_Unknown);
@@ -121,8 +123,11 @@ private:
   void parseSquare(bool LambdaIntroducer = false);
   void keepAncestorBraces();
   void parseUnbracedBody(bool CheckEOF = false);
+  void handleAttributes();
+  bool handleCppAttributes();
   FormatToken *parseIfThenElse(IfStmtKind *IfKind, bool KeepBraces = false);
   void parseTryCatch();
+  void parseLoopBody(bool KeepBraces, bool WrapRightBrace);
   void parseForOrWhileLoop();
   void parseDoWhile();
   void parseLabel(bool LeftAlignLabel = false);

@@ -171,7 +171,8 @@ define void @promote(<4 x i64>* %arg) #0 {
 ; IS__CGSCC_NPM-NEXT:    call void @llvm.memset.p0i8.i64(i8* nocapture nofree noundef nonnull writeonly align 32 dereferenceable(32) [[TMP3]], i8 noundef 0, i64 noundef 32, i1 noundef false) #[[ATTR3]]
 ; IS__CGSCC_NPM-NEXT:    [[TMP0:%.*]] = load <4 x i64>, <4 x i64>* [[TMP]], align 32
 ; IS__CGSCC_NPM-NEXT:    call fastcc void @promote_avx2(<4 x i64>* noalias nocapture nofree noundef nonnull writeonly align 32 dereferenceable(32) [[TMP2]], <4 x i64> [[TMP0]]) #[[ATTR4]]
-; IS__CGSCC_NPM-NEXT:    store <4 x i64> [[TMP0]], <4 x i64>* [[ARG]], align 2
+; IS__CGSCC_NPM-NEXT:    [[TMP4:%.*]] = load <4 x i64>, <4 x i64>* [[TMP2]], align 32
+; IS__CGSCC_NPM-NEXT:    store <4 x i64> [[TMP4]], <4 x i64>* [[ARG]], align 2
 ; IS__CGSCC_NPM-NEXT:    ret void
 ;
 bb:
@@ -202,5 +203,5 @@ attributes #2 = { argmemonly nounwind }
 ; IS__CGSCC____: attributes #[[ATTR1:[0-9]+]] = { argmemonly nofree nosync nounwind willreturn uwtable }
 ; IS__CGSCC____: attributes #[[ATTR2:[0-9]+]] = { argmemonly nofree nounwind willreturn writeonly }
 ; IS__CGSCC____: attributes #[[ATTR3:[0-9]+]] = { willreturn writeonly }
-; IS__CGSCC____: attributes #[[ATTR4:[0-9]+]] = { nosync nounwind willreturn }
+; IS__CGSCC____: attributes #[[ATTR4:[0-9]+]] = { nounwind willreturn }
 ;.

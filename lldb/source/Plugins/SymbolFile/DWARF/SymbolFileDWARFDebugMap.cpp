@@ -237,7 +237,7 @@ SymbolFile *SymbolFileDWARFDebugMap::CreateInstance(ObjectFileSP objfile_sp) {
 }
 
 SymbolFileDWARFDebugMap::SymbolFileDWARFDebugMap(ObjectFileSP objfile_sp)
-    : SymbolFile(std::move(objfile_sp)), m_flags(), m_compile_unit_infos(),
+    : SymbolFileCommon(std::move(objfile_sp)), m_flags(), m_compile_unit_infos(),
       m_func_indexes(), m_glob_indexes(),
       m_supports_DW_AT_APPLE_objc_complete_type(eLazyBoolCalculate) {}
 
@@ -1184,24 +1184,12 @@ void SymbolFileDWARFDebugMap::FindTypes(
     llvm::ArrayRef<CompilerContext> context, LanguageSet languages,
     llvm::DenseSet<lldb_private::SymbolFile *> &searched_symbol_files,
     TypeMap &types) {
+  LLDB_SCOPED_TIMER();
   ForEachSymbolFile([&](SymbolFileDWARF *oso_dwarf) -> bool {
     oso_dwarf->FindTypes(context, languages, searched_symbol_files, types);
     return false;
   });
 }
-
-//
-// uint32_t
-// SymbolFileDWARFDebugMap::FindTypes (const SymbolContext& sc, const
-// RegularExpression& regex, bool append, uint32_t max_matches, Type::Encoding
-// encoding, lldb::user_id_t udt_uid, TypeList& types)
-//{
-//  SymbolFileDWARF *oso_dwarf = GetSymbolFile (sc);
-//  if (oso_dwarf)
-//      return oso_dwarf->FindTypes (sc, regex, append, max_matches, encoding,
-//      udt_uid, types);
-//  return 0;
-//}
 
 CompilerDeclContext SymbolFileDWARFDebugMap::FindNamespace(
     lldb_private::ConstString name,

@@ -14,9 +14,11 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/DebugInfo/Symbolize/SymbolizableModule.h"
 #include "llvm/DebugInfo/Symbolize/Symbolize.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/ProfileData/InstrProfReader.h"
@@ -55,16 +57,18 @@ public:
   // \p Path. The binary from which the profile has been collected is specified
   // via a path in \p ProfiledBinary.
   static Expected<std::unique_ptr<RawMemProfReader>>
-  create(const Twine &Path, const StringRef ProfiledBinary);
+  create(const Twine &Path, const StringRef ProfiledBinary,
+         bool KeepName = false);
 
-  Error readNextRecord(MemProfRecord &Record);
-
-  using Iterator = InstrProfIterator<MemProfRecord, RawMemProfReader>;
+  using GuidMemProfRecordPair = std::pair<GlobalValue::GUID, MemProfRecord>;
+  using Iterator = InstrProfIterator<GuidMemProfRecordPair, RawMemProfReader>;
   Iterator end() { return Iterator(); }
   Iterator begin() {
-    Iter = ProfileData.begin();
+    Iter = FunctionProfileData.begin();
     return Iterator(this);
   }
+
+  Error readNextRecord(GuidMemProfRecordPair &GuidRecord);
 
   // The RawMemProfReader only holds memory profile information.
   InstrProfKind getProfileKind() const { return InstrProfKind::MemProf; }
@@ -73,9 +77,9 @@ public:
   RawMemProfReader(std::unique_ptr<llvm::symbolize::SymbolizableModule> Sym,
                    llvm::SmallVectorImpl<SegmentEntry> &Seg,
                    llvm::MapVector<uint64_t, MemInfoBlock> &Prof,
-                   CallStackMap &SM)
+                   CallStackMap &SM, bool KeepName = false)
       : Symbolizer(std::move(Sym)), SegmentInfo(Seg.begin(), Seg.end()),
-        ProfileData(Prof), StackMap(SM) {
+        CallstackProfileData(Prof), StackMap(SM), KeepSymbolName(KeepName) {
     // We don't call initialize here since there is no raw profile to read. The
     // test should pass in the raw profile as structured data.
 
@@ -83,12 +87,26 @@ public:
     // initialized properly.
     if (Error E = symbolizeAndFilterStackFrames())
       report_fatal_error(std::move(E));
+    if (Error E = mapRawProfileToRecords())
+      report_fatal_error(std::move(E));
+  }
+
+  // Return a const reference to the internal Id to Frame mappings.
+  const llvm::DenseMap<FrameId, Frame> &getFrameMapping() const {
+    return IdToFrame;
+  }
+
+  // Return a const reference to the internal function profile data.
+  const llvm::MapVector<GlobalValue::GUID, IndexedMemProfRecord> &
+  getProfileData() const {
+    return FunctionProfileData;
   }
 
 private:
   RawMemProfReader(std::unique_ptr<MemoryBuffer> DataBuffer,
-                   object::OwningBinary<object::Binary> &&Bin)
-      : DataBuffer(std::move(DataBuffer)), Binary(std::move(Bin)) {}
+                   object::OwningBinary<object::Binary> &&Bin, bool KeepName)
+      : DataBuffer(std::move(DataBuffer)), Binary(std::move(Bin)),
+        KeepSymbolName(KeepName) {}
   Error initialize();
   Error readRawProfile();
   // Symbolize and cache all the virtual addresses we encounter in the
@@ -96,10 +114,19 @@ private:
   // symbolize or those that belong to the runtime. For profile entries where
   // the entire callstack is pruned, we drop the entry from the profile.
   Error symbolizeAndFilterStackFrames();
+  // Construct memprof records for each function and store it in the
+  // `FunctionProfileData` map. A function may have allocation profile data or
+  // callsite data or both.
+  Error mapRawProfileToRecords();
+
+  // A helper method to extract the frame from the IdToFrame map.
+  const Frame &idToFrame(const FrameId Id) const {
+    auto It = IdToFrame.find(Id);
+    assert(It != IdToFrame.end() && "Id not found in map.");
+    return It->getSecond();
+  }
 
   object::SectionedAddress getModuleOffset(uint64_t VirtualAddress);
-  Error fillRecord(const uint64_t Id, const MemInfoBlock &MIB,
-                   MemProfRecord &Record);
   // Prints aggregate counts for each raw profile parsed from the DataBuffer in
   // YAML format.
   void printSummaries(raw_ostream &OS) const;
@@ -112,17 +139,21 @@ private:
   llvm::SmallVector<SegmentEntry, 16> SegmentInfo;
   // A map from callstack id (same as key in CallStackMap below) to the heap
   // information recorded for that allocation context.
-  llvm::MapVector<uint64_t, MemInfoBlock> ProfileData;
+  llvm::MapVector<uint64_t, MemInfoBlock> CallstackProfileData;
   CallStackMap StackMap;
 
   // Cached symbolization from PC to Frame.
-  llvm::DenseMap<uint64_t, llvm::SmallVector<MemProfRecord::Frame>>
-      SymbolizedFrame;
+  llvm::DenseMap<uint64_t, llvm::SmallVector<FrameId>> SymbolizedFrame;
+  llvm::DenseMap<FrameId, Frame> IdToFrame;
 
-  // Iterator to read from the ProfileData MapVector.
-  llvm::MapVector<uint64_t, MemInfoBlock>::iterator Iter = ProfileData.end();
+  llvm::MapVector<GlobalValue::GUID, IndexedMemProfRecord> FunctionProfileData;
+  llvm::MapVector<GlobalValue::GUID, IndexedMemProfRecord>::iterator Iter;
+
+  // Whether to keep the symbol name for each frame after hashing.
+  bool KeepSymbolName = false;
+  // A mapping of the hash to symbol name, only used if KeepSymbolName is true.
+  llvm::DenseMap<uint64_t, std::string> GuidToSymbolName;
 };
-
 } // namespace memprof
 } // namespace llvm
 

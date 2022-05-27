@@ -222,11 +222,28 @@ bool fir::BoxValue::verify() const {
 
 /// Get exactly one extent for any array-like extended value, \p exv. If \p exv
 /// is not an array or has rank less then \p dim, the result will be a nullptr.
-mlir::Value fir::getExtentAtDimension(const fir::ExtendedValue &exv,
-                                      fir::FirOpBuilder &builder,
-                                      mlir::Location loc, unsigned dim) {
-  auto extents = fir::factory::getExtents(builder, loc, exv);
+mlir::Value fir::factory::getExtentAtDimension(mlir::Location loc,
+                                               fir::FirOpBuilder &builder,
+                                               const fir::ExtendedValue &exv,
+                                               unsigned dim) {
+  auto extents = fir::factory::getExtents(loc, builder, exv);
   if (dim < extents.size())
     return extents[dim];
   return {};
+}
+
+static inline bool isUndefOp(mlir::Value v) {
+  return mlir::isa_and_nonnull<fir::UndefOp>(v.getDefiningOp());
+}
+
+bool fir::ExtendedValue::isAssumedSize() const {
+  return match(
+      [](const fir::ArrayBoxValue &box) -> bool {
+        return !box.getExtents().empty() && isUndefOp(box.getExtents().back());
+        ;
+      },
+      [](const fir::CharArrayBoxValue &box) -> bool {
+        return !box.getExtents().empty() && isUndefOp(box.getExtents().back());
+      },
+      [](const auto &box) -> bool { return false; });
 }

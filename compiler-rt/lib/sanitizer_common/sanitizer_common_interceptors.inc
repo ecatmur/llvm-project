@@ -203,13 +203,13 @@ extern const short *_tolower_tab_;
 #endif
 
 // Platform-specific options.
-#if SANITIZER_MAC
+#if SANITIZER_APPLE
 #define PLATFORM_HAS_DIFFERENT_MEMCPY_AND_MEMMOVE 0
 #elif SANITIZER_WINDOWS64
 #define PLATFORM_HAS_DIFFERENT_MEMCPY_AND_MEMMOVE 0
 #else
 #define PLATFORM_HAS_DIFFERENT_MEMCPY_AND_MEMMOVE 1
-#endif  // SANITIZER_MAC
+#endif  // SANITIZER_APPLE
 
 #ifndef COMMON_INTERCEPTOR_INITIALIZE_RANGE
 #define COMMON_INTERCEPTOR_INITIALIZE_RANGE(p, size) {}
@@ -1334,7 +1334,7 @@ INTERCEPTOR_WITH_SUFFIX(int, fputs, char *s, void *file) {
   // libc file streams can call user-supplied functions, see fopencookie.
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, fputs, s, file);
-  if (!SANITIZER_MAC || s) {  // `fputs(NULL, file)` is supported on Darwin.
+  if (!SANITIZER_APPLE || s) {  // `fputs(NULL, file)` is supported on Darwin.
     COMMON_INTERCEPTOR_READ_RANGE(ctx, s, internal_strlen(s) + 1);
   }
   return REAL(fputs)(s, file);
@@ -1349,7 +1349,7 @@ INTERCEPTOR(int, puts, char *s) {
   // libc file streams can call user-supplied functions, see fopencookie.
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, puts, s);
-  if (!SANITIZER_MAC || s) {  // `puts(NULL)` is supported on Darwin.
+  if (!SANITIZER_APPLE || s) {  // `puts(NULL)` is supported on Darwin.
     COMMON_INTERCEPTOR_READ_RANGE(ctx, s, internal_strlen(s) + 1);
   }
   return REAL(puts)(s);
@@ -1365,12 +1365,16 @@ INTERCEPTOR(int, prctl, int option, unsigned long arg2, unsigned long arg3,
   void *ctx;
   COMMON_INTERCEPTOR_ENTER(ctx, prctl, option, arg2, arg3, arg4, arg5);
   static const int PR_SET_NAME = 15;
+  static const int PR_SCHED_CORE = 62;
+  static const int PR_SCHED_CORE_GET = 0;
   int res = REAL(prctl(option, arg2, arg3, arg4, arg5));
   if (option == PR_SET_NAME) {
     char buff[16];
     internal_strncpy(buff, (char *)arg2, 15);
     buff[15] = 0;
     COMMON_INTERCEPTOR_SET_THREAD_NAME(ctx, buff);
+  } else if (res != -1 && option == PR_SCHED_CORE && arg2 == PR_SCHED_CORE_GET) {
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, (u64*)(arg5), sizeof(u64));
   }
   return res;
 }
@@ -1948,7 +1952,7 @@ UNUSED static void unpoison_passwd(void *ctx, __sanitizer_passwd *pwd) {
       COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwd->pw_gecos,
                                      internal_strlen(pwd->pw_gecos) + 1);
 #endif
-#if SANITIZER_MAC || SANITIZER_FREEBSD || SANITIZER_NETBSD
+#if SANITIZER_APPLE || SANITIZER_FREEBSD || SANITIZER_NETBSD
     if (pwd->pw_class)
       COMMON_INTERCEPTOR_WRITE_RANGE(ctx, pwd->pw_class,
                                      internal_strlen(pwd->pw_class) + 1);
@@ -2491,6 +2495,34 @@ INTERCEPTOR(int, glob64, const char *pattern, int flags,
 #else  // SANITIZER_INTERCEPT_GLOB64
 #define INIT_GLOB64
 #endif  // SANITIZER_INTERCEPT_GLOB64
+
+#if SANITIZER_INTERCEPT___B64_TO
+INTERCEPTOR(int, __b64_ntop, unsigned char const *src, SIZE_T srclength,
+            char *target, SIZE_T targsize) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, __b64_ntop, src, srclength, target, targsize);
+  COMMON_INTERCEPTOR_READ_RANGE(ctx, src, srclength);
+  int res = REAL(__b64_ntop)(src, srclength, target, targsize);
+  if (res >= 0)
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, target, res + 1);
+  return res;
+}
+INTERCEPTOR(int, __b64_pton, char const *src, char *target, SIZE_T targsize) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, __b64_pton, src, target, targsize);
+  COMMON_INTERCEPTOR_READ_RANGE(ctx, src, internal_strlen(src) + 1);
+  int res = REAL(__b64_pton)(src, target, targsize);
+  if (res >= 0)
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, target, res);
+  return res;
+}
+#  define INIT___B64_TO                    \
+    COMMON_INTERCEPT_FUNCTION(__b64_ntop); \
+    COMMON_INTERCEPT_FUNCTION(__b64_pton);
+#else  // SANITIZER_INTERCEPT___B64_TO
+#define INIT___B64_TO
+#endif  // SANITIZER_INTERCEPT___B64_TO
+
 
 #if SANITIZER_INTERCEPT_POSIX_SPAWN
 
@@ -3909,7 +3941,7 @@ INTERCEPTOR(char *, strerror, int errnum) {
 //  * GNU version returns message pointer, which points to either buf or some
 //    static storage.
 #if ((_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && !_GNU_SOURCE) || \
-    SANITIZER_MAC || SANITIZER_ANDROID || SANITIZER_NETBSD ||                 \
+    SANITIZER_APPLE || SANITIZER_ANDROID || SANITIZER_NETBSD ||                 \
     SANITIZER_FREEBSD
 // POSIX version. Spec is not clear on whether buf is NULL-terminated.
 // At least on OSX, buf contents are valid even when the call fails.
@@ -3942,7 +3974,7 @@ INTERCEPTOR(char *, strerror_r, int errnum, char *buf, SIZE_T buflen) {
   return res;
 }
 #endif //(_POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600) && !_GNU_SOURCE ||
-       //SANITIZER_MAC
+       //SANITIZER_APPLE
 #define INIT_STRERROR_R COMMON_INTERCEPT_FUNCTION(strerror_r);
 #else
 #define INIT_STRERROR_R
@@ -6941,6 +6973,23 @@ INTERCEPTOR(int, stat, const char *path, void *buf) {
 #define INIT_STAT
 #endif
 
+#if SANITIZER_INTERCEPT_STAT64
+INTERCEPTOR(int, stat64, const char *path, void *buf) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, stat64, path, buf);
+  if (common_flags()->intercept_stat)
+    COMMON_INTERCEPTOR_READ_STRING(ctx, path, 0);
+  int res = REAL(stat64)(path, buf);
+  if (!res)
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, __sanitizer::struct_stat64_sz);
+  return res;
+}
+#define INIT_STAT64 COMMON_INTERCEPT_FUNCTION(stat64)
+#else
+#define INIT_STAT64
+#endif
+
+
 #if SANITIZER_INTERCEPT_LSTAT
 INTERCEPTOR(int, lstat, const char *path, void *buf) {
   void *ctx;
@@ -6955,6 +7004,22 @@ INTERCEPTOR(int, lstat, const char *path, void *buf) {
 #define INIT_LSTAT COMMON_INTERCEPT_FUNCTION(lstat)
 #else
 #define INIT_LSTAT
+#endif
+
+#if SANITIZER_INTERCEPT_STAT64
+INTERCEPTOR(int, lstat64, const char *path, void *buf) {
+  void *ctx;
+  COMMON_INTERCEPTOR_ENTER(ctx, lstat64, path, buf);
+  if (common_flags()->intercept_stat)
+    COMMON_INTERCEPTOR_READ_STRING(ctx, path, 0);
+  int res = REAL(lstat64)(path, buf);
+  if (!res)
+    COMMON_INTERCEPTOR_WRITE_RANGE(ctx, buf, __sanitizer::struct_stat64_sz);
+  return res;
+}
+#define INIT_LSTAT64 COMMON_INTERCEPT_FUNCTION(lstat64)
+#else
+#define INIT_LSTAT64
 #endif
 
 #if SANITIZER_INTERCEPT___XSTAT
@@ -7974,7 +8039,7 @@ INTERCEPTOR(int, regcomp, void *preg, const char *pattern, int cflags) {
   if (pattern)
     COMMON_INTERCEPTOR_READ_RANGE(ctx, pattern, internal_strlen(pattern) + 1);
   int res = REAL(regcomp)(preg, pattern, cflags);
-  if (!res)
+  if (preg)
     COMMON_INTERCEPTOR_WRITE_RANGE(ctx, preg, struct_regex_sz);
   return res;
 }
@@ -10359,6 +10424,7 @@ static void InitializeCommonInterceptors() {
   INIT_TIME;
   INIT_GLOB;
   INIT_GLOB64;
+  INIT___B64_TO;
   INIT_POSIX_SPAWN;
   INIT_WAIT;
   INIT_WAIT4;
@@ -10516,8 +10582,10 @@ static void InitializeCommonInterceptors() {
   INIT_RECV_RECVFROM;
   INIT_SEND_SENDTO;
   INIT_STAT;
+  INIT_STAT64;
   INIT_EVENTFD_READ_WRITE;
   INIT_LSTAT;
+  INIT_LSTAT64;
   INIT___XSTAT;
   INIT___XSTAT64;
   INIT___LXSTAT;

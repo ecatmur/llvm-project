@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP__HASH_TABLE
-#define _LIBCPP__HASH_TABLE
+#ifndef _LIBCPP___HASH_TABLE
+#define _LIBCPP___HASH_TABLE
 
 #include <__algorithm/max.h>
 #include <__algorithm/min.h>
@@ -23,8 +23,6 @@
 #include <iterator>
 #include <memory>
 #include <type_traits>
-
-#include <utility> // TODO: Remove this
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -1514,9 +1512,7 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::~__hash_table()
 #endif
 
     __deallocate_node(__p1_.first().__next_);
-#if _LIBCPP_DEBUG_LEVEL == 2
-    __get_db()->__erase_c(this);
-#endif
+    std::__debug_db_erase_c(this);
 }
 
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
@@ -1619,9 +1615,7 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::__move_assign(
         __u.__p1_.first().__next_ = nullptr;
         __u.size() = 0;
     }
-#if _LIBCPP_DEBUG_LEVEL == 2
-    __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+    std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
@@ -2323,9 +2317,7 @@ template <class _Tp, class _Hash, class _Equal, class _Alloc>
 void
 __hash_table<_Tp, _Hash, _Equal, _Alloc>::__rehash(size_type __nbc)
 {
-#if _LIBCPP_DEBUG_LEVEL == 2
-    __get_db()->__invalidate_all(this);
-#endif
+    std::__debug_db_invalidate_all(this);
     __pointer_allocator& __npa = __bucket_list_.get_deleter().__alloc();
     __bucket_list_.reset(__nbc > 0 ?
                       __pointer_alloc_traits::allocate(__npa, __nbc) : nullptr);
@@ -2480,8 +2472,8 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::erase(const_iterator __p)
     _LIBCPP_DEBUG_ASSERT(__get_const_db()->__find_c_from_i(_VSTD::addressof(__p)) == this,
                          "unordered container erase(iterator) called with an iterator not"
                          " referring to this container");
-    _LIBCPP_DEBUG_ASSERT(__p != end(),
-                         "unordered container erase(iterator) called with a non-dereferenceable iterator");
+    _LIBCPP_ASSERT(__p != end(),
+                   "unordered container erase(iterator) called with a non-dereferenceable iterator");
 #if _LIBCPP_DEBUG_LEVEL == 2
     iterator __r(__np, this);
 #else
@@ -2731,9 +2723,7 @@ __hash_table<_Tp, _Hash, _Equal, _Alloc>::swap(__hash_table& __u)
     if (__u.size() > 0)
         __u.__bucket_list_[__constrain_hash(__u.__p1_.first().__next_->__hash(), __u.bucket_count())] =
             __u.__p1_.first().__ptr();
-#if _LIBCPP_DEBUG_LEVEL == 2
-    __get_db()->swap(this, _VSTD::addressof(__u));
-#endif
+    std::__debug_db_swap(this, std::addressof(__u));
 }
 
 template <class _Tp, class _Hash, class _Equal, class _Alloc>
@@ -2801,4 +2791,4 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#endif // _LIBCPP__HASH_TABLE
+#endif // _LIBCPP___HASH_TABLE

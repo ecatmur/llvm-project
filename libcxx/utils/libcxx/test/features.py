@@ -43,7 +43,6 @@ DEFAULT_FEATURES = [
   Feature(name='-fsized-deallocation',          when=lambda cfg: hasCompileFlag(cfg, '-fsized-deallocation')),
   Feature(name='-faligned-allocation',          when=lambda cfg: hasCompileFlag(cfg, '-faligned-allocation')),
   Feature(name='fdelayed-template-parsing',     when=lambda cfg: hasCompileFlag(cfg, '-fdelayed-template-parsing')),
-  Feature(name='libcpp-no-concepts',            when=lambda cfg: featureTestMacros(cfg).get('__cpp_concepts', 0) < 201907),
   Feature(name='libcpp-no-coroutines',          when=lambda cfg: featureTestMacros(cfg).get('__cpp_impl_coroutine', 0) < 201902),
   Feature(name='has-fobjc-arc',                 when=lambda cfg: hasCompileFlag(cfg, '-xobjective-c++ -fobjc-arc') and
                                                                  sys.platform.lower().strip() == 'darwin'), # TODO: this doesn't handle cross-compiling to Apple platforms.
@@ -117,6 +116,15 @@ DEFAULT_FEATURES = [
             }
           """)),
 
+  Feature(name='has-unix-headers',
+          when=lambda cfg: sourceBuilds(cfg, """
+            #include <unistd.h>
+            #include <sys/wait.h>
+            int main(int, char**) {
+              return 0;
+            }
+          """)),
+
   # Whether Bash can run on the executor.
   # This is not always the case, for example when running on embedded systems.
   #
@@ -135,13 +143,21 @@ DEFAULT_FEATURES = [
   Feature(name=lambda cfg: 'apple-clang-{__clang_major__}.{__clang_minor__}'.format(**compilerMacros(cfg)),                        when=_isAppleClang),
   Feature(name=lambda cfg: 'apple-clang-{__clang_major__}.{__clang_minor__}.{__clang_patchlevel__}'.format(**compilerMacros(cfg)), when=_isAppleClang),
 
-  Feature(name='clang',                                                                                                            when=_isClang,
-          actions=[AddCompileFlag('-D_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER')]),
+  Feature(name='clang',                                                                                                            when=_isClang),
   Feature(name=lambda cfg: 'clang-{__clang_major__}'.format(**compilerMacros(cfg)),                                                when=_isClang),
   Feature(name=lambda cfg: 'clang-{__clang_major__}.{__clang_minor__}'.format(**compilerMacros(cfg)),                              when=_isClang),
   Feature(name=lambda cfg: 'clang-{__clang_major__}.{__clang_minor__}.{__clang_patchlevel__}'.format(**compilerMacros(cfg)),       when=_isClang),
 
-  Feature(name='gcc',                                                                                                              when=_isGCC),
+  # Note: Due to a GCC bug (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=104760), we must disable deprecation warnings
+  #       on GCC or spurious diagnostics are issued.
+  #
+  # TODO:
+  # - Enable -Wplacement-new with GCC.
+  # - Enable -Wclass-memaccess with GCC.
+  Feature(name='gcc',                                                                                                              when=_isGCC,
+          actions=[AddCompileFlag('-D_LIBCPP_DISABLE_DEPRECATION_WARNINGS'),
+                   AddCompileFlag('-Wno-placement-new'),
+                   AddCompileFlag('-Wno-class-memaccess')]),
   Feature(name=lambda cfg: 'gcc-{__GNUC__}'.format(**compilerMacros(cfg)),                                                         when=_isGCC),
   Feature(name=lambda cfg: 'gcc-{__GNUC__}.{__GNUC_MINOR__}'.format(**compilerMacros(cfg)),                                        when=_isGCC),
   Feature(name=lambda cfg: 'gcc-{__GNUC__}.{__GNUC_MINOR__}.{__GNUC_PATCHLEVEL__}'.format(**compilerMacros(cfg)),                  when=_isGCC),
@@ -158,17 +174,20 @@ DEFAULT_FEATURES = [
 # is defined after including <__config_site>, add a Lit feature called
 # `libcpp-xxx-yyy-zzz`. When a macro is defined to a specific value
 # (e.g. `_LIBCPP_ABI_VERSION=2`), the feature is `libcpp-xxx-yyy-zzz=<value>`.
+#
+# Note that features that are more strongly tied to libc++ are named libcpp-foo,
+# while features that are more general in nature are not prefixed with 'libcpp-'.
 macros = {
-  '_LIBCPP_HAS_NO_MONOTONIC_CLOCK': 'libcpp-has-no-monotonic-clock',
-  '_LIBCPP_HAS_NO_THREADS': 'libcpp-has-no-threads',
+  '_LIBCPP_HAS_NO_MONOTONIC_CLOCK': 'no-monotonic-clock',
+  '_LIBCPP_HAS_NO_THREADS': 'no-threads',
   '_LIBCPP_HAS_THREAD_API_EXTERNAL': 'libcpp-has-thread-api-external',
   '_LIBCPP_HAS_THREAD_API_PTHREAD': 'libcpp-has-thread-api-pthread',
   '_LIBCPP_NO_VCRUNTIME': 'libcpp-no-vcruntime',
   '_LIBCPP_ABI_VERSION': 'libcpp-abi-version',
-  '_LIBCPP_HAS_NO_FILESYSTEM_LIBRARY': 'libcpp-has-no-filesystem-library',
-  '_LIBCPP_HAS_NO_RANDOM_DEVICE': 'libcpp-has-no-random-device',
-  '_LIBCPP_HAS_NO_LOCALIZATION': 'libcpp-has-no-localization',
-  '_LIBCPP_HAS_NO_WIDE_CHARACTERS': 'libcpp-has-no-wide-characters',
+  '_LIBCPP_HAS_NO_FILESYSTEM_LIBRARY': 'no-filesystem',
+  '_LIBCPP_HAS_NO_RANDOM_DEVICE': 'no-random-device',
+  '_LIBCPP_HAS_NO_LOCALIZATION': 'no-localization',
+  '_LIBCPP_HAS_NO_WIDE_CHARACTERS': 'no-wide-characters',
   '_LIBCPP_HAS_NO_INCOMPLETE_FORMAT': 'libcpp-has-no-incomplete-format',
   '_LIBCPP_HAS_NO_INCOMPLETE_RANGES': 'libcpp-has-no-incomplete-ranges',
   '_LIBCPP_HAS_NO_UNICODE': 'libcpp-has-no-unicode',
@@ -186,6 +205,7 @@ for macro, feature in macros.items():
 locales = {
   'en_US.UTF-8':     ['en_US.UTF-8', 'en_US.utf8', 'English_United States.1252'],
   'fr_FR.UTF-8':     ['fr_FR.UTF-8', 'fr_FR.utf8', 'French_France.1252'],
+  'ja_JP.UTF-8':     ['ja_JP.UTF-8', 'ja_JP.utf8', 'Japanese_Japan.923'],
   'ru_RU.UTF-8':     ['ru_RU.UTF-8', 'ru_RU.utf8', 'Russian_Russia.1251'],
   'zh_CN.UTF-8':     ['zh_CN.UTF-8', 'zh_CN.utf8', 'Chinese_China.936'],
   'fr_CA.ISO8859-1': ['fr_CA.ISO8859-1', 'French_Canada.1252'],

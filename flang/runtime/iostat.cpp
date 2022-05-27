@@ -30,7 +30,7 @@ const char *IostatErrorString(int iostat) {
   case IostatInternalWriteOverrun:
     return "Internal write overran available records";
   case IostatErrorInFormat:
-    return "Invalid FORMAT";
+    return "Bad FORMAT";
   case IostatErrorInKeyword:
     return "Bad keyword argument value";
   case IostatEndfileDirect:
@@ -69,6 +69,29 @@ const char *IostatErrorString(int iostat) {
     return "Child input from output parent unit";
   case IostatChildOutputToInputParent:
     return "Child output to input parent unit";
+  case IostatShortRead:
+    return "Read from external unit returned insufficient data";
+  case IostatMissingTerminator:
+    return "Sequential record missing its terminator";
+  case IostatBadUnformattedRecord:
+    return "Erroneous unformatted sequential file record structure";
+  case IostatUTF8Decoding:
+    return "UTF-8 decoding error";
+  case IostatUnitOverflow:
+    return "UNIT number is out of range";
+  case IostatBadRealInput:
+    return "Bad REAL input value";
+  case IostatBadScaleFactor:
+    return "Bad REAL output scale factor (kP)";
+  case IostatBadAsynchronous:
+    return "READ/WRITE(ASYNCHRONOUS='YES') on unit without "
+           "OPEN(ASYNCHRONOUS='YES')";
+  case IostatBadWaitUnit:
+    return "WAIT(ID=nonzero) for a bad unit number";
+  case IostatBOZInputOverflow:
+    return "B/O/Z input value overflows variable";
+  case IostatIntegerInputOverflow:
+    return "Integer input value overflows variable";
   default:
     return nullptr;
   }
