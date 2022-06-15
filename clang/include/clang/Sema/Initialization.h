@@ -923,7 +923,13 @@ public:
     SK_OCLSamplerInit,
 
     /// Initialize an opaque OpenCL type (event_t, queue_t, etc.) with zero
-    SK_OCLZeroOpaqueType
+    SK_OCLZeroOpaqueType,
+
+    /// Array initialization from a parenthesized list: int a[](1, 2, 3) (C++20)
+    SK_ArrayParenthesizedInit,
+
+    /// Initialize an aggregate from a parenthesized list (C++20)
+    SK_AggregateParenthesizedInit,
   };
 
   /// A single step in the initialization sequence.
@@ -1356,6 +1362,12 @@ public:
   /// Add a step to initialzie an OpenCL opaque type (event_t, queue_t, etc.)
   /// from a zero constant.
   void AddOCLZeroOpaqueTypeStep(QualType T);
+
+  /// Add an array parenthesized initialization step.
+  void AddArrayParenthesizedInitStep(QualType T);
+
+  /// Add an aggregate parenthesized initialization step.
+  void AddAggregateParenthesizedInitStep(QualType T);
 
   /// Add steps to unwrap a initializer list for a reference around a
   /// single element and rewrap it at the end.

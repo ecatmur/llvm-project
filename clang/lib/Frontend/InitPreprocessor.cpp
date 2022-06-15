@@ -625,7 +625,7 @@ static void InitializeCPlusPlusFeatureTestMacros(const LangOptions &LangOpts,
 
   // C++20 features.
   if (LangOpts.CPlusPlus20) {
-    //Builder.defineMacro("__cpp_aggregate_paren_init", "201902L");
+    Builder.defineMacro("__cpp_aggregate_paren_init", "201902L");
     Builder.defineMacro("__cpp_concepts", "201907L");
     Builder.defineMacro("__cpp_conditional_explicit", "201806L");
     //Builder.defineMacro("__cpp_consteval", "201811L");

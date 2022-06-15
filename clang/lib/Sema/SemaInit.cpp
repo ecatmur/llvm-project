@@ -3491,6 +3491,8 @@ void InitializationSequence::Step::Destroy() {
   case SK_StdInitializerListConstructorCall:
   case SK_OCLSamplerInit:
   case SK_OCLZeroOpaqueType:
+  case SK_ArrayParenthesizedInit:
+  case SK_AggregateParenthesizedInit:
     break;
 
   case SK_ConversionSequence:
@@ -3785,6 +3787,20 @@ void InitializationSequence::AddOCLZeroOpaqueTypeStep(QualType T) {
   Steps.push_back(S);
 }
 
+void InitializationSequence::AddArrayParenthesizedInitStep(QualType T) {
+  Step S;
+  S.Kind = SK_ArrayParenthesizedInit;
+  S.Type = T;
+  Steps.push_back(S);
+}
+
+void InitializationSequence::AddAggregateParenthesizedInitStep(QualType T) {
+  Step S;
+  S.Kind = SK_AggregateParenthesizedInit;
+  S.Type = T;
+  Steps.push_back(S);
+}
+
 void InitializationSequence::RewrapReferenceInitList(QualType T,
                                                      InitListExpr *Syntactic) {
   assert(Syntactic->getNumInits() == 1 &&
@@ -4028,6 +4044,48 @@ ResolveConstructorOverload(Sema &S, SourceLocation DeclLoc,
   return CandidateSet.BestViableFunction(S, DeclLoc, Best);
 }
 
+static void TryAggregateParenthesizedInitialization(Sema& S,
+                                                    const InitializedEntity &Entity,
+                                                    MultiExprArg Args,
+                                                    QualType DestType,
+                                                    InitializationSequence &Sequence) {
+  RecordDecl *RD = DeclType->castAs<RecordType>()->getDecl();
+  auto Bases =
+      CXXRecordDecl::base_class_range(CXXRecordDecl::base_class_iterator(),
+                                      CXXRecordDecl::base_class_iterator());
+  if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
+    Bases = CXXRD->bases();
+
+  unsigned Index = 0;
+  for (auto& Base : Bases) {
+    Expr *Init = Index < Args.size() ? &Args[Index++] : nullptr;
+    SourceLocation InitLoc = Init ? Init->getBeginLoc() : Args.back().getEndLoc();
+    InitializedEntity BaseEntity = InitializedEntity::InitializeBase(
+        S.Context, &Base, false, &Entity);
+    if (Init)
+      CheckSubElementType(BaseEntity, IList, Base.getType(), Index,
+                          StructuredList, StructuredIndex);
+    else
+      CheckEmptyInitializable(BaseEntity, InitLoc);
+  }
+  for (auto& Field : RD->fields()) {
+    Expr *Init = Index < Args.size() ? &Args[Index++] : nullptr;
+    InitializedEntity MemberEntity =
+      InitializedEntity::InitializeMember(Field, &Entity);
+    if (Init)
+      CheckSubElementType(MemberEntity, IList, Field.getType(), Index,
+                          StructuredList, StructuredIndex);
+    else
+      CheckEmptyInitializable(BaseEntity, InitLoc);
+  }
+
+  if (hadError) {
+    Sequence.SetFailed(InitializationSequence::FK_ConstructorOverloadFailed); // FIXME
+    return;
+  }
+  Sequence.AddAggregateParenthesizedInitStep(DestType);
+}
+
 /// Attempt initialization by constructor (C++ [dcl.init]), which
 /// enumerates the constructors of the initialized entity and performs overload
 /// resolution to select the best.
@@ -4142,6 +4200,17 @@ static void TryConstructorInitialization(Sema &S,
                                         /*OnlyListConstructors=*/false,
                                         IsListInit);
   }
+
+  // C++20 [dcl.init.general]p16.6.2.2:
+  // Otherwise, if no constructor is viable, the destination type is an aggregate
+  // class, and the initializer is a parenthesized expression-list, the object is
+  // initialized as follows. [...]
+  if (S.getLangOpts().CPlusPlus20 && Result == OR_No_Viable_Function &&
+      DestType->isAggregateType() && Kind.getKind() == InitializationKind::IK_Direct) {
+    TryAggregateParenthesizedInitialization(S, Entity, Args, DestType, Sequence);
+    return;
+  }
+
   if (Result) {
     Sequence.SetOverloadFailure(
         IsListInit ? InitializationSequence::FK_ListConstructorOverloadFailed
@@ -5793,7 +5862,7 @@ void InitializationSequence::InitializeFrom(Sema &S,
   //       char16_t, an array of char32_t, or an array of wchar_t, and the
   //       initializer is a string literal, see 8.5.2.
   //     - Otherwise, if the destination type is an array, the program is
-  //       ill-formed.
+  //       ill-formed [until C++20].
   if (const ArrayType *DestAT = Context.getAsArrayType(DestType)) {
     if (Initializer && isa<VariableArrayType>(DestAT)) {
       SetFailed(FK_VariableLengthArrayHasInitializer);
@@ -8148,6 +8217,8 @@ ExprResult InitializationSequence::Perform(Sema &S,
   case SK_ConstructorInitializationFromList:
   case SK_StdInitializerListConstructorCall:
   case SK_ZeroInitialization:
+  case SK_ArrayParenthesizedInit:
+  case SK_AggregateParenthesizedInit:
     break;
   }
 
@@ -9767,6 +9838,14 @@ void InitializationSequence::dump(raw_ostream &OS) const {
 
     case SK_OCLZeroOpaqueType:
       OS << "OpenCL opaque type from zero";
+      break;
+
+    case SK_ArrayParenthesizedInit:
+      OS << "array initialization from parenthesized list";
+      break;
+
+    case SK_AggregateParenthesizedInit:
+      OS << "aggregate initialization from parenthesized list";
       break;
     }
 
