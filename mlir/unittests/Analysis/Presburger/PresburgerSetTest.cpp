@@ -24,18 +24,6 @@
 using namespace mlir;
 using namespace presburger;
 
-/// Parse a list of StringRefs to IntegerPolyhedron and combine them into a
-/// PresburgerSet be using the union operation. It is expected that the strings
-/// are all valid IntegerSet representation and that all of them have the same
-/// number of dimensions as is specified by the numDims argument.
-static PresburgerSet
-parsePresburgerSetFromPolyStrings(unsigned numDims, ArrayRef<StringRef> strs) {
-  PresburgerSet set = PresburgerSet::getEmpty(numDims);
-  for (StringRef str : strs)
-    set.unionInPlace(parsePoly(str));
-  return set;
-}
-
 /// Compute the union of s and t, and check that each of the given points
 /// belongs to the union iff it belongs to at least one of s and t.
 static void testUnionAtPoints(const PresburgerSet &s, const PresburgerSet &t,
@@ -101,7 +89,8 @@ static void testComplementAtPoints(const PresburgerSet &s,
 /// local ids.
 static PresburgerSet makeSetFromPoly(unsigned numDims,
                                      ArrayRef<IntegerPolyhedron> polys) {
-  PresburgerSet set = PresburgerSet::getEmpty(numDims);
+  PresburgerSet set =
+      PresburgerSet::getEmpty(PresburgerSpace::getSetSpace(numDims));
   for (const IntegerPolyhedron &poly : polys)
     set.unionInPlace(poly);
   return set;
@@ -135,6 +124,10 @@ TEST(SetTest, containsPoint) {
         EXPECT_FALSE(setB.containsPoint({x, y}));
     }
   }
+
+  // The PresburgerSet has only one id, x, so we supply one value.
+  EXPECT_TRUE(PresburgerSet(parsePoly("(x) : (x - 2*(x floordiv 2) == 0)"))
+                  .containsPoint({0}));
 }
 
 TEST(SetTest, Union) {
@@ -143,23 +136,26 @@ TEST(SetTest, Union) {
       {"(x) : (x - 2 >= 0, -x + 8 >= 0)", "(x) : (x - 10 >= 0, -x + 20 >= 0)"});
 
   // Universe union set.
-  testUnionAtPoints(PresburgerSet::getUniverse(1), set,
-                    {{1}, {2}, {8}, {9}, {10}, {20}, {21}});
+  testUnionAtPoints(PresburgerSet::getUniverse(PresburgerSpace::getSetSpace(1)),
+                    set, {{1}, {2}, {8}, {9}, {10}, {20}, {21}});
 
   // empty set union set.
-  testUnionAtPoints(PresburgerSet::getEmpty(1), set,
-                    {{1}, {2}, {8}, {9}, {10}, {20}, {21}});
+  testUnionAtPoints(PresburgerSet::getEmpty(PresburgerSpace::getSetSpace(1)),
+                    set, {{1}, {2}, {8}, {9}, {10}, {20}, {21}});
 
   // empty set union Universe.
-  testUnionAtPoints(PresburgerSet::getEmpty(1), PresburgerSet::getUniverse(1),
+  testUnionAtPoints(PresburgerSet::getEmpty(PresburgerSpace::getSetSpace(1)),
+                    PresburgerSet::getUniverse(PresburgerSpace::getSetSpace(1)),
                     {{1}, {2}, {0}, {-1}});
 
   // Universe union empty set.
-  testUnionAtPoints(PresburgerSet::getUniverse(1), PresburgerSet::getEmpty(1),
+  testUnionAtPoints(PresburgerSet::getUniverse(PresburgerSpace::getSetSpace(1)),
+                    PresburgerSet::getEmpty(PresburgerSpace::getSetSpace(1)),
                     {{1}, {2}, {0}, {-1}});
 
   // empty set union empty set.
-  testUnionAtPoints(PresburgerSet::getEmpty(1), PresburgerSet::getEmpty(1),
+  testUnionAtPoints(PresburgerSet::getEmpty(PresburgerSpace::getSetSpace((1))),
+                    PresburgerSet::getEmpty(PresburgerSpace::getSetSpace((1))),
                     {{1}, {2}, {0}, {-1}});
 }
 
@@ -169,24 +165,32 @@ TEST(SetTest, Intersect) {
       {"(x) : (x - 2 >= 0, -x + 8 >= 0)", "(x) : (x - 10 >= 0, -x + 20 >= 0)"});
 
   // Universe intersection set.
-  testIntersectAtPoints(PresburgerSet::getUniverse(1), set,
-                        {{1}, {2}, {8}, {9}, {10}, {20}, {21}});
+  testIntersectAtPoints(
+      PresburgerSet::getUniverse(PresburgerSpace::getSetSpace((1))), set,
+      {{1}, {2}, {8}, {9}, {10}, {20}, {21}});
 
   // empty set intersection set.
-  testIntersectAtPoints(PresburgerSet::getEmpty(1), set,
-                        {{1}, {2}, {8}, {9}, {10}, {20}, {21}});
+  testIntersectAtPoints(
+      PresburgerSet::getEmpty(PresburgerSpace::getSetSpace((1))), set,
+      {{1}, {2}, {8}, {9}, {10}, {20}, {21}});
 
   // empty set intersection Universe.
-  testIntersectAtPoints(PresburgerSet::getEmpty(1),
-                        PresburgerSet::getUniverse(1), {{1}, {2}, {0}, {-1}});
+  testIntersectAtPoints(
+      PresburgerSet::getEmpty(PresburgerSpace::getSetSpace((1))),
+      PresburgerSet::getUniverse(PresburgerSpace::getSetSpace((1))),
+      {{1}, {2}, {0}, {-1}});
 
   // Universe intersection empty set.
-  testIntersectAtPoints(PresburgerSet::getUniverse(1),
-                        PresburgerSet::getEmpty(1), {{1}, {2}, {0}, {-1}});
+  testIntersectAtPoints(
+      PresburgerSet::getUniverse(PresburgerSpace::getSetSpace((1))),
+      PresburgerSet::getEmpty(PresburgerSpace::getSetSpace((1))),
+      {{1}, {2}, {0}, {-1}});
 
   // Universe intersection Universe.
-  testIntersectAtPoints(PresburgerSet::getUniverse(1),
-                        PresburgerSet::getUniverse(1), {{1}, {2}, {0}, {-1}});
+  testIntersectAtPoints(
+      PresburgerSet::getUniverse(PresburgerSpace::getSetSpace((1))),
+      PresburgerSet::getUniverse(PresburgerSpace::getSetSpace((1))),
+      {{1}, {2}, {0}, {-1}});
 }
 
 TEST(SetTest, Subtract) {
@@ -341,12 +345,12 @@ TEST(SetTest, Subtract) {
 TEST(SetTest, Complement) {
   // Complement of universe.
   testComplementAtPoints(
-      PresburgerSet::getUniverse(1),
+      PresburgerSet::getUniverse(PresburgerSpace::getSetSpace((1))),
       {{-1}, {-2}, {-8}, {1}, {2}, {8}, {9}, {10}, {20}, {21}});
 
   // Complement of empty set.
   testComplementAtPoints(
-      PresburgerSet::getEmpty(1),
+      PresburgerSet::getEmpty(PresburgerSpace::getSetSpace((1))),
       {{-1}, {-2}, {-8}, {1}, {2}, {8}, {9}, {10}, {20}, {21}});
 
   testComplementAtPoints(
@@ -368,8 +372,10 @@ TEST(SetTest, Complement) {
 
 TEST(SetTest, isEqual) {
   // set = [2, 8] U [10, 20].
-  PresburgerSet universe = PresburgerSet::getUniverse(1);
-  PresburgerSet emptySet = PresburgerSet::getEmpty(1);
+  PresburgerSet universe =
+      PresburgerSet::getUniverse(PresburgerSpace::getSetSpace((1)));
+  PresburgerSet emptySet =
+      PresburgerSet::getEmpty(PresburgerSpace::getSetSpace((1)));
   PresburgerSet set = parsePresburgerSetFromPolyStrings(
       1,
       {"(x) : (x - 2 >= 0, -x + 8 >= 0)", "(x) : (x - 10 >= 0, -x + 20 >= 0)"});
@@ -443,7 +449,8 @@ TEST(SetTest, divisions) {
   // evens /\ odds = empty.
   expectEmpty(PresburgerSet(evens).intersect(PresburgerSet(odds)));
   // evens U odds = universe.
-  expectEqual(evens.unionSet(odds), PresburgerSet::getUniverse(1));
+  expectEqual(evens.unionSet(odds),
+              PresburgerSet::getUniverse(PresburgerSpace::getSetSpace((1))));
   expectEqual(evens.complement(), odds);
   expectEqual(odds.complement(), evens);
   // even multiples of 3 = multiples of 6.
@@ -452,11 +459,25 @@ TEST(SetTest, divisions) {
   PresburgerSet setA{parsePoly("(x) : (-x >= 0)")};
   PresburgerSet setB{parsePoly("(x) : (x floordiv 2 - 4 >= 0)")};
   EXPECT_TRUE(setA.subtract(setB).isEqual(setA));
+
+  IntegerPolyhedron evensDefByEquality(PresburgerSpace::getSetSpace(
+      /*numDims=*/1, /*numSymbols=*/0, /*numLocals=*/1));
+  evensDefByEquality.addEquality({1, -2, 0});
+  expectEqual(evens, PresburgerSet(evensDefByEquality));
 }
 
-/// Coalesce `set` and check that the `newSet` is equal to `set and that
+TEST(SetTest, subtractDuplicateDivsRegression) {
+  // Previously, subtracting sets with duplicate divs might result in crashes
+  // due to existing divs being removed when merging local ids, due to being
+  // identified as being duplicates for the first time.
+  IntegerPolyhedron setA(PresburgerSpace::getSetSpace(1));
+  setA.addLocalFloorDiv({1, 0}, 2);
+  setA.addLocalFloorDiv({1, 0, 0}, 2);
+  EXPECT_TRUE(setA.isEqual(setA));
+}
+
+/// Coalesce `set` and check that the `newSet` is equal to `set` and that
 /// `expectedNumPoly` matches the number of Poly in the coalesced set.
-/// If one of the two
 void expectCoalesce(size_t expectedNumPoly, const PresburgerSet &set) {
   PresburgerSet newSet = set.coalesce();
   EXPECT_TRUE(set.isEqual(newSet));
@@ -728,4 +749,76 @@ TEST(SetTest, computeVolume) {
   expectComputedVolumeIsValidOverapprox(unbounded.unionSet(diamond),
                                         /*trueVolume=*/{},
                                         /*resultBound=*/{});
+}
+
+// The last `numToProject` dims will be projected out, i.e., converted to
+// locals.
+void testComputeReprAtPoints(IntegerPolyhedron poly,
+                             ArrayRef<SmallVector<int64_t, 4>> points,
+                             unsigned numToProject) {
+  poly.convertIdKind(IdKind::SetDim, poly.getNumDimIds() - numToProject,
+                     poly.getNumDimIds(), IdKind::Local);
+  PresburgerSet repr = poly.computeReprWithOnlyDivLocals();
+  EXPECT_TRUE(repr.hasOnlyDivLocals());
+  EXPECT_TRUE(repr.getSpace().isCompatible(poly.getSpace()));
+  for (const SmallVector<int64_t, 4> &point : points) {
+    EXPECT_EQ(poly.containsPointNoLocal(point).hasValue(),
+              repr.containsPoint(point));
+  }
+}
+
+void testComputeRepr(IntegerPolyhedron poly, const PresburgerSet &expected,
+                     unsigned numToProject) {
+  poly.convertIdKind(IdKind::SetDim, poly.getNumDimIds() - numToProject,
+                     poly.getNumDimIds(), IdKind::Local);
+  PresburgerSet repr = poly.computeReprWithOnlyDivLocals();
+  EXPECT_TRUE(repr.hasOnlyDivLocals());
+  EXPECT_TRUE(repr.getSpace().isCompatible(poly.getSpace()));
+  EXPECT_TRUE(repr.isEqual(expected));
+}
+
+TEST(SetTest, computeReprWithOnlyDivLocals) {
+  testComputeReprAtPoints(parsePoly("(x, y) : (x - 2*y == 0)"),
+                          {{1, 0}, {2, 1}, {3, 0}, {4, 2}, {5, 3}},
+                          /*numToProject=*/0);
+  testComputeReprAtPoints(parsePoly("(x, e) : (x - 2*e == 0)"),
+                          {{1}, {2}, {3}, {4}, {5}}, /*numToProject=*/1);
+
+  // Tests to check that the space is preserved.
+  testComputeReprAtPoints(parsePoly("(x, y)[z, w] : ()"), {},
+                          /*numToProject=*/1);
+  testComputeReprAtPoints(parsePoly("(x, y)[z, w] : (z - (w floordiv 2) == 0)"),
+                          {},
+                          /*numToProject=*/1);
+
+  // Bezout's lemma: if a, b are constants,
+  // the set of values that ax + by can take is all multiples of gcd(a, b).
+  testComputeRepr(
+      parsePoly("(x, e, f) : (x - 15*e - 21*f == 0)"),
+      PresburgerSet(parsePoly({"(x) : (x - 3*(x floordiv 3) == 0)"})),
+      /*numToProject=*/2);
+}
+
+TEST(SetTest, subtractOutputSizeRegression) {
+  PresburgerSet set1 =
+      parsePresburgerSetFromPolyStrings(1, {"(i) : (i >= 0, 10 - i >= 0)"});
+  PresburgerSet set2 =
+      parsePresburgerSetFromPolyStrings(1, {"(i) : (i - 5 >= 0)"});
+
+  PresburgerSet set3 =
+      parsePresburgerSetFromPolyStrings(1, {"(i) : (i >= 0, 4 - i >= 0)"});
+
+  PresburgerSet result = set1.subtract(set2);
+
+  EXPECT_TRUE(result.isEqual(set3));
+
+  // Previously, the subtraction result was producing an extra empty set, which
+  // is correct, but bad for output size.
+  EXPECT_EQ(result.getNumDisjuncts(), 1u);
+
+  PresburgerSet subtractSelf = set1.subtract(set1);
+  EXPECT_TRUE(subtractSelf.isIntegerEmpty());
+  // Previously, the subtraction result was producing several unnecessary empty
+  // sets, which is correct, but bad for output size.
+  EXPECT_EQ(subtractSelf.getNumDisjuncts(), 0u);
 }

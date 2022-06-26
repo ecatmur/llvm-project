@@ -142,9 +142,9 @@ static LinalgOp fuse(OpBuilder &b, LinalgOp producer,
   clonedShapes.reserve(producer.getNumInputsAndOutputs());
 
   // Compute subranges for all tensor input/output operands.
-  clonedShapes.append(makeTiledShapes(b, loc, producer,
-                                      getTiledOperands(producer), ivs,
-                                      tileSizes, sizeBounds));
+  clonedShapes.append(makeTiledShapes(
+      b, loc, producer, getTiledOperands(producer), ivs, tileSizes, sizeBounds,
+      /**omitPartialTileCheck=*/false));
 
   // Iterate over the results in order.
   // Extract the subtensor type from the linearized range.
@@ -168,8 +168,8 @@ static LinalgOp fuse(OpBuilder &b, LinalgOp producer,
 
   // Shift all IndexOp results by the tile offset.
   SmallVector<Value> allIvs;
-  transform(loopRanges, std::back_inserter(allIvs),
-            [](Range range) { return range.offset; });
+  llvm::transform(loopRanges, std::back_inserter(allIvs),
+                  [](Range range) { return range.offset; });
   addTileLoopIvsToIndexOpResults(b, clonedOp, allIvs);
 
   return clonedOp;
@@ -302,8 +302,7 @@ findFusableProducer(OpOperand &consumerOpOperand,
                    elem.getIndexingOpViewOperandNum();
                return isa<LinalgOp>(elem.getDependentOp()) &&
                       v == consumerOpOperand.get() && operandNum &&
-                      operandNum.getValue() ==
-                          consumerOpOperand.getOperandNumber();
+                      *operandNum == consumerOpOperand.getOperandNumber();
              })) {
       // Consumer consumes this view, `isStructurallyFusableProducer` also
       // checks whether it is a strict subview of the producer view.
@@ -533,7 +532,7 @@ static bool doesTransposeAccess(AffineMap map,
       lastFusableLoop = pos;
       continue;
     }
-    if (pos <= lastFusableLoop.getValue())
+    if (pos <= *lastFusableLoop)
       return true;
     lastFusableLoop = pos;
   }

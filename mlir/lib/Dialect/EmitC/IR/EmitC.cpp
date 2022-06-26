@@ -63,6 +63,19 @@ LogicalResult ApplyOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// CastOp
+//===----------------------------------------------------------------------===//
+
+bool CastOp::areCastCompatible(TypeRange inputs, TypeRange outputs) {
+  Type input = inputs.front(), output = outputs.front();
+
+  return ((input.isa<IntegerType, FloatType, IndexType, emitc::OpaqueType,
+                     emitc::PointerType>()) &&
+          (output.isa<IntegerType, FloatType, IndexType, emitc::OpaqueType,
+                      emitc::PointerType>()));
+}
+
+//===----------------------------------------------------------------------===//
 // CallOp
 //===----------------------------------------------------------------------===//
 
@@ -72,7 +85,7 @@ LogicalResult emitc::CallOp::verify() {
     return emitOpError("callee must not be empty");
 
   if (Optional<ArrayAttr> argsAttr = args()) {
-    for (Attribute arg : argsAttr.getValue()) {
+    for (Attribute arg : *argsAttr) {
       if (arg.getType().isa<IndexType>()) {
         int64_t index = arg.cast<IntegerAttr>().getInt();
         // Args with elements of type index must be in range
@@ -88,7 +101,7 @@ LogicalResult emitc::CallOp::verify() {
   }
 
   if (Optional<ArrayAttr> templateArgsAttr = template_args()) {
-    for (Attribute tArg : templateArgsAttr.getValue()) {
+    for (Attribute tArg : *templateArgsAttr) {
       if (!tArg.isa<TypeAttr>() && !tArg.isa<IntegerAttr>() &&
           !tArg.isa<FloatAttr>() && !tArg.isa<emitc::OpaqueAttr>())
         return emitOpError("template argument has invalid type");
@@ -217,7 +230,12 @@ Type emitc::OpaqueType::parse(AsmParser &parser) {
   std::string value;
   SMLoc loc = parser.getCurrentLocation();
   if (parser.parseOptionalString(&value) || value.empty()) {
-    parser.emitError(loc) << "expected non empty string";
+    parser.emitError(loc) << "expected non empty string in !emitc.opaque type";
+    return Type();
+  }
+  if (value.back() == '*') {
+    parser.emitError(loc) << "pointer not allowed as outer type with "
+                             "!emitc.opaque, use !emitc.ptr instead";
     return Type();
   }
   if (parser.parseGreater())

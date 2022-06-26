@@ -250,6 +250,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(forEachLambdaCapture);
   REGISTER_MATCHER(forEachOverridden);
   REGISTER_MATCHER(forEachSwitchCase);
+  REGISTER_MATCHER(forEachTemplateArgument);
   REGISTER_MATCHER(forField);
   REGISTER_MATCHER(forFunction);
   REGISTER_MATCHER(forStmt);
@@ -424,6 +425,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(isExpr);
   REGISTER_MATCHER(isExternC);
   REGISTER_MATCHER(isFinal);
+  REGISTER_MATCHER(isPrivateKind);
   REGISTER_MATCHER(isFirstPrivateKind);
   REGISTER_MATCHER(isImplicit);
   REGISTER_MATCHER(isInStdNamespace);
@@ -795,9 +797,9 @@ VariantMatcher Registry::constructBoundMatcher(MatcherCtor Ctor,
   if (Out.isNull()) return Out;
 
   llvm::Optional<DynTypedMatcher> Result = Out.getSingleMatcher();
-  if (Result.hasValue()) {
+  if (Result) {
     llvm::Optional<DynTypedMatcher> Bound = Result->tryBind(BindID);
-    if (Bound.hasValue()) {
+    if (Bound) {
       return VariantMatcher::SingleMatcher(*Bound);
     }
   }

@@ -13,6 +13,8 @@ Standalone Tool
 :program:`clang-format` is located in `clang/tools/clang-format` and can be used
 to format C/C++/Java/JavaScript/JSON/Objective-C/Protobuf/C# code.
 
+.. START_FORMAT_HELP
+
 .. code-block:: console
 
   $ clang-format -help
@@ -41,6 +43,17 @@ to format C/C++/Java/JavaScript/JSON/Objective-C/Protobuf/C# code.
     --assume-filename=<string>     - Override filename used to determine the language.
                                      When reading from stdin, clang-format assumes this
                                      filename to determine the language.
+                                     Unrecognized filenames are treated as C++.
+                                     supported:
+                                       CSharp: .cs
+                                       Java: .java
+                                       JavaScript: .mjs .js .ts
+                                       Json: .json
+                                       Objective-C: .m .mm
+                                       Proto: .proto .protodevel
+                                       TableGen: .td
+                                       TextProto: .textpb .pb.txt .textproto .asciipb
+                                       Verilog: .sv .svh .v .vh
     --cursor=<uint>                - The position of the cursor when invoking
                                      clang-format from an editor integration
     --dry-run                      - If set, do not actually make the formatting changes
@@ -51,7 +64,9 @@ to format C/C++/Java/JavaScript/JSON/Objective-C/Protobuf/C# code.
                                      -style=file, but can not find the .clang-format
                                      file to use.
                                      Use -fallback-style=none to skip formatting.
-    --ferror-limit=<uint>          - Set the maximum number of clang-format errors to emit before stopping (0 = no limit). Used only with --dry-run or -n
+    --ferror-limit=<uint>          - Set the maximum number of clang-format errors to emit
+                                     before stopping (0 = no limit).
+                                     Used only with --dry-run or -n
     --files=<string>               - Provide a list of files to run clang-format
     -i                             - Inplace edit <file>s, if specified.
     --length=<uint>                - Format a range of this length (in bytes).
@@ -73,8 +88,10 @@ to format C/C++/Java/JavaScript/JSON/Objective-C/Protobuf/C# code.
                                      several -offset and -length pairs.
                                      Can only be used with one input file.
     --output-replacements-xml      - Output replacements as XML.
-    --qualifier-alignment=<string> - If set, overrides the qualifier alignment style determined by the QualifierAlignment style flag
-    --sort-includes                - If set, overrides the include sorting behavior determined by the SortIncludes style flag
+    --qualifier-alignment=<string> - If set, overrides the qualifier alignment style
+                                     determined by the QualifierAlignment style flag
+    --sort-includes                - If set, overrides the include sorting behavior
+                                     determined by the SortIncludes style flag
     --style=<string>               - Coding style, currently supports:
                                        LLVM, GNU, Google, Chromium, Microsoft, Mozilla, WebKit.
                                      Use -style=file to load style configuration from
@@ -94,6 +111,8 @@ to format C/C++/Java/JavaScript/JSON/Objective-C/Protobuf/C# code.
     --help-list                    - Display list of available options (--help-list-hidden for more)
     --version                      - Display the version of this program
 
+
+.. END_FORMAT_HELP
 
 When the desired code formatting style is different from the available options,
 the style can be customized using the ``-style="{key: value, ...}"`` option or

@@ -314,6 +314,9 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
   case Stmt::OMPMasterTaskLoopDirectiveClass:
     EmitOMPMasterTaskLoopDirective(cast<OMPMasterTaskLoopDirective>(*S));
     break;
+  case Stmt::OMPMaskedTaskLoopDirectiveClass:
+    llvm_unreachable("masked taskloop directive not supported yet.");
+    break;
   case Stmt::OMPMasterTaskLoopSimdDirectiveClass:
     EmitOMPMasterTaskLoopSimdDirective(
         cast<OMPMasterTaskLoopSimdDirective>(*S));
@@ -401,6 +404,15 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     break;
   case Stmt::OMPTargetTeamsGenericLoopDirectiveClass:
     llvm_unreachable("target teams loop directive not supported yet.");
+    break;
+  case Stmt::OMPParallelGenericLoopDirectiveClass:
+    llvm_unreachable("parallel loop directive not supported yet.");
+    break;
+  case Stmt::OMPTargetParallelGenericLoopDirectiveClass:
+    llvm_unreachable("target parallel loop directive not supported yet.");
+    break;
+  case Stmt::OMPParallelMaskedDirectiveClass:
+    llvm_unreachable("parallel masked directive not supported yet.");
     break;
   }
 }
@@ -2280,6 +2292,9 @@ static void UpdateAsmCallInst(llvm::CallBase &Result, bool HasSideEffect,
 }
 
 void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
+  // Pop all cleanup blocks at the end of the asm statement.
+  CodeGenFunction::RunCleanupsScope Cleanups(*this);
+
   // Assemble the final asm string.
   std::string AsmString = S.generateAsmString(getContext());
 
@@ -2741,9 +2756,8 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
       QualType Ty = getContext().getIntTypeForBitwidth(Size, /*Signed*/ false);
       if (Ty.isNull()) {
         const Expr *OutExpr = S.getOutputExpr(i);
-        CGM.Error(
-            OutExpr->getExprLoc(),
-            "impossible constraint in asm: can't store value into a register");
+        CGM.getDiags().Report(OutExpr->getExprLoc(),
+                              diag::err_store_value_to_reg);
         return;
       }
       Dest = MakeAddrLValue(A, Ty);

@@ -30,7 +30,6 @@
 ; GCN-O0-NEXT:      FunctionPass Manager
 ; GCN-O0-NEXT:        Dominator Tree Construction
 ; GCN-O0-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O0-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O0-NEXT:    FunctionPass Manager
 ; GCN-O0-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O0-NEXT:    AMDGPU Lower Intrinsics
@@ -127,10 +126,11 @@
 ; GCN-O0-NEXT:        Insert fentry calls
 ; GCN-O0-NEXT:        Insert XRay ops
 ; GCN-O0-NEXT:        SI Memory Legalizer
+; GCN-O0-NEXT:        MachineDominator Tree Construction
+; GCN-O0-NEXT:        Machine Natural Loop Construction
 ; GCN-O0-NEXT:        MachinePostDominator Tree Construction
 ; GCN-O0-NEXT:        SI insert wait instructions
 ; GCN-O0-NEXT:        Insert required mode register values
-; GCN-O0-NEXT:        MachineDominator Tree Construction
 ; GCN-O0-NEXT:        SI Final Branch Preparation
 ; GCN-O0-NEXT:        Post RA hazard recognizer
 ; GCN-O0-NEXT:        Branch relaxation pass
@@ -167,7 +167,6 @@
 ; GCN-O1-NEXT:      FunctionPass Manager
 ; GCN-O1-NEXT:        Dominator Tree Construction
 ; GCN-O1-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O1-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O1-NEXT:    FunctionPass Manager
 ; GCN-O1-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O1-NEXT:    AMDGPU Lower Intrinsics
@@ -298,6 +297,7 @@
 ; GCN-O1-NEXT:        Machine Block Frequency Analysis
 ; GCN-O1-NEXT:        Machine Common Subexpression Elimination
 ; GCN-O1-NEXT:        MachinePostDominator Tree Construction
+; GCN-O1-NEXT:        Machine Cycle Info Analysis
 ; GCN-O1-NEXT:        Machine code sinking
 ; GCN-O1-NEXT:        Peephole Optimizations
 ; GCN-O1-NEXT:        Remove dead machine instructions
@@ -379,11 +379,12 @@
 ; GCN-O1-NEXT:        Insert fentry calls
 ; GCN-O1-NEXT:        Insert XRay ops
 ; GCN-O1-NEXT:        SI Memory Legalizer
+; GCN-O1-NEXT:        MachineDominator Tree Construction
+; GCN-O1-NEXT:        Machine Natural Loop Construction
 ; GCN-O1-NEXT:        MachinePostDominator Tree Construction
 ; GCN-O1-NEXT:        SI insert wait instructions
 ; GCN-O1-NEXT:        Insert required mode register values
 ; GCN-O1-NEXT:        SI Insert Hard Clauses
-; GCN-O1-NEXT:        MachineDominator Tree Construction
 ; GCN-O1-NEXT:        SI Final Branch Preparation
 ; GCN-O1-NEXT:        SI peephole optimizations
 ; GCN-O1-NEXT:        Post RA hazard recognizer
@@ -421,7 +422,6 @@
 ; GCN-O1-OPTS-NEXT:      FunctionPass Manager
 ; GCN-O1-OPTS-NEXT:        Dominator Tree Construction
 ; GCN-O1-OPTS-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O1-OPTS-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O1-OPTS-NEXT:    FunctionPass Manager
 ; GCN-O1-OPTS-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O1-OPTS-NEXT:    AMDGPU Lower Intrinsics
@@ -577,6 +577,7 @@
 ; GCN-O1-OPTS-NEXT:        Machine Block Frequency Analysis
 ; GCN-O1-OPTS-NEXT:        Machine Common Subexpression Elimination
 ; GCN-O1-OPTS-NEXT:        MachinePostDominator Tree Construction
+; GCN-O1-OPTS-NEXT:        Machine Cycle Info Analysis
 ; GCN-O1-OPTS-NEXT:        Machine code sinking
 ; GCN-O1-OPTS-NEXT:        Peephole Optimizations
 ; GCN-O1-OPTS-NEXT:        Remove dead machine instructions
@@ -666,11 +667,12 @@
 ; GCN-O1-OPTS-NEXT:        Insert fentry calls
 ; GCN-O1-OPTS-NEXT:        Insert XRay ops
 ; GCN-O1-OPTS-NEXT:        SI Memory Legalizer
+; GCN-O1-OPTS-NEXT:        MachineDominator Tree Construction
+; GCN-O1-OPTS-NEXT:        Machine Natural Loop Construction
 ; GCN-O1-OPTS-NEXT:        MachinePostDominator Tree Construction
 ; GCN-O1-OPTS-NEXT:        SI insert wait instructions
 ; GCN-O1-OPTS-NEXT:        Insert required mode register values
 ; GCN-O1-OPTS-NEXT:        SI Insert Hard Clauses
-; GCN-O1-OPTS-NEXT:        MachineDominator Tree Construction
 ; GCN-O1-OPTS-NEXT:        SI Final Branch Preparation
 ; GCN-O1-OPTS-NEXT:        SI peephole optimizations
 ; GCN-O1-OPTS-NEXT:        Post RA hazard recognizer
@@ -708,7 +710,6 @@
 ; GCN-O2-NEXT:      FunctionPass Manager
 ; GCN-O2-NEXT:        Dominator Tree Construction
 ; GCN-O2-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O2-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O2-NEXT:    FunctionPass Manager
 ; GCN-O2-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O2-NEXT:    AMDGPU Lower Intrinsics
@@ -865,6 +866,7 @@
 ; GCN-O2-NEXT:        Machine Block Frequency Analysis
 ; GCN-O2-NEXT:        Machine Common Subexpression Elimination
 ; GCN-O2-NEXT:        MachinePostDominator Tree Construction
+; GCN-O2-NEXT:        Machine Cycle Info Analysis
 ; GCN-O2-NEXT:        Machine code sinking
 ; GCN-O2-NEXT:        Peephole Optimizations
 ; GCN-O2-NEXT:        Remove dead machine instructions
@@ -955,11 +957,12 @@
 ; GCN-O2-NEXT:        Insert fentry calls
 ; GCN-O2-NEXT:        Insert XRay ops
 ; GCN-O2-NEXT:        SI Memory Legalizer
+; GCN-O2-NEXT:        MachineDominator Tree Construction
+; GCN-O2-NEXT:        Machine Natural Loop Construction
 ; GCN-O2-NEXT:        MachinePostDominator Tree Construction
 ; GCN-O2-NEXT:        SI insert wait instructions
 ; GCN-O2-NEXT:        Insert required mode register values
 ; GCN-O2-NEXT:        SI Insert Hard Clauses
-; GCN-O2-NEXT:        MachineDominator Tree Construction
 ; GCN-O2-NEXT:        SI Final Branch Preparation
 ; GCN-O2-NEXT:        SI peephole optimizations
 ; GCN-O2-NEXT:        Post RA hazard recognizer
@@ -997,7 +1000,6 @@
 ; GCN-O3-NEXT:      FunctionPass Manager
 ; GCN-O3-NEXT:        Dominator Tree Construction
 ; GCN-O3-NEXT:    Lower ctors and dtors for AMDGPU
-; GCN-O3-NEXT:    Fix function bitcasts for AMDGPU
 ; GCN-O3-NEXT:    FunctionPass Manager
 ; GCN-O3-NEXT:      Early propagate attributes from kernels to functions
 ; GCN-O3-NEXT:    AMDGPU Lower Intrinsics
@@ -1166,6 +1168,7 @@
 ; GCN-O3-NEXT:        Machine Block Frequency Analysis
 ; GCN-O3-NEXT:        Machine Common Subexpression Elimination
 ; GCN-O3-NEXT:        MachinePostDominator Tree Construction
+; GCN-O3-NEXT:        Machine Cycle Info Analysis
 ; GCN-O3-NEXT:        Machine code sinking
 ; GCN-O3-NEXT:        Peephole Optimizations
 ; GCN-O3-NEXT:        Remove dead machine instructions
@@ -1256,11 +1259,12 @@
 ; GCN-O3-NEXT:        Insert fentry calls
 ; GCN-O3-NEXT:        Insert XRay ops
 ; GCN-O3-NEXT:        SI Memory Legalizer
+; GCN-O3-NEXT:        MachineDominator Tree Construction
+; GCN-O3-NEXT:        Machine Natural Loop Construction
 ; GCN-O3-NEXT:        MachinePostDominator Tree Construction
 ; GCN-O3-NEXT:        SI insert wait instructions
 ; GCN-O3-NEXT:        Insert required mode register values
 ; GCN-O3-NEXT:        SI Insert Hard Clauses
-; GCN-O3-NEXT:        MachineDominator Tree Construction
 ; GCN-O3-NEXT:        SI Final Branch Preparation
 ; GCN-O3-NEXT:        SI peephole optimizations
 ; GCN-O3-NEXT:        Post RA hazard recognizer

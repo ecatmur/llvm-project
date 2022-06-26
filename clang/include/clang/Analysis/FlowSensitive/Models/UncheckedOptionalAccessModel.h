@@ -24,6 +24,18 @@
 namespace clang {
 namespace dataflow {
 
+// FIXME: Explore using an allowlist-approach, where constructs supported by the
+// analysis are always enabled and additional constructs are enabled through the
+// `Options`.
+struct UncheckedOptionalAccessModelOptions {
+  /// Ignore optionals reachable through overloaded `operator*` or `operator->`
+  /// (other than those of the optional type itself). The analysis does not
+  /// equate the results of such calls, so it can't identify when their results
+  /// are used safely (across calls), resulting in false positives in all such
+  /// cases. Note: this option does not cover access through `operator[]`.
+  bool IgnoreSmartPointerDereference = false;
+};
+
 /// Dataflow analysis that discovers unsafe accesses of optional values and
 /// adds the respective source locations to the lattice.
 ///
@@ -34,7 +46,11 @@ class UncheckedOptionalAccessModel
     : public DataflowAnalysis<UncheckedOptionalAccessModel,
                               SourceLocationsLattice> {
 public:
-  explicit UncheckedOptionalAccessModel(ASTContext &AstContext);
+  UncheckedOptionalAccessModel(
+      ASTContext &AstContext, UncheckedOptionalAccessModelOptions Options = {});
+
+  /// Returns a matcher for the optional classes covered by this model.
+  static ast_matchers::DeclarationMatcher optionalClassDecl();
 
   static SourceLocationsLattice initialElement() {
     return SourceLocationsLattice();
@@ -42,6 +58,14 @@ public:
 
   void transfer(const Stmt *Stmt, SourceLocationsLattice &State,
                 Environment &Env);
+
+  bool compareEquivalent(QualType Type, const Value &Val1,
+                         const Environment &Env1, const Value &Val2,
+                         const Environment &Env2) override;
+
+  bool merge(QualType Type, const Value &Val1, const Environment &Env1,
+             const Value &Val2, const Environment &Env2, Value &MergedVal,
+             Environment &MergedEnv) override;
 
 private:
   MatchSwitch<TransferState<SourceLocationsLattice>> TransferMatchSwitch;

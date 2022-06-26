@@ -741,7 +741,7 @@ bool MIParser::parseBasicBlockDefinition(
   MBB->setIsEHPad(IsLandingPad);
   MBB->setIsInlineAsmBrIndirectTarget(IsInlineAsmBrIndirectTarget);
   MBB->setIsEHFuncletEntry(IsEHFuncletEntry);
-  if (SectionID.hasValue()) {
+  if (SectionID) {
     MBB->setSectionID(SectionID.getValue());
     MF.setBBSectionsType(BasicBlockSection::List);
   }
@@ -1100,7 +1100,7 @@ bool MIParser::parse(MachineInstr *&MI) {
     if (!IsImplicitOp) {
       if (!MCID.isVariadic() && NumExplicitOps >= MCID.getNumOperands() &&
           !Operand.Operand.isValidExcessOperand())
-        return error("too many operands for instruction");
+        return error(Operand.Begin, "too many operands for instruction");
 
       ++NumExplicitOps;
     }
@@ -1618,7 +1618,7 @@ bool MIParser::assignRegisterTies(MachineInstr &MI,
       continue;
     // The parser ensures that this operand is a register use, so we just have
     // to check the tied-def operand.
-    unsigned DefIdx = Operands[I].TiedDefIdx.getValue();
+    unsigned DefIdx = *Operands[I].TiedDefIdx;
     if (DefIdx >= E)
       return error(Operands[I].Begin,
                    Twine("use of invalid tied-def operand index '" +
@@ -1723,6 +1723,15 @@ bool MIParser::parseRegisterOperand(MachineOperand &Dest,
         RegInfo->Kind == VRegInfo::REGBANK)
       return error("generic virtual registers must have a type");
   }
+
+  if (Flags & RegState::Define) {
+    if (Flags & RegState::Kill)
+      return error("cannot have a killed def operand");
+  } else {
+    if (Flags & RegState::Dead)
+      return error("cannot have a dead use operand");
+  }
+
   Dest = MachineOperand::CreateReg(
       Reg, Flags & RegState::Define, Flags & RegState::Implicit,
       Flags & RegState::Kill, Flags & RegState::Dead, Flags & RegState::Undef,

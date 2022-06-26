@@ -861,6 +861,10 @@ void OMPClauseProfiler::VisitOMPIsDevicePtrClause(
     const OMPIsDevicePtrClause *C) {
   VisitOMPClauseList(C);
 }
+void OMPClauseProfiler::VisitOMPHasDeviceAddrClause(
+    const OMPHasDeviceAddrClause *C) {
+  VisitOMPClauseList(C);
+}
 void OMPClauseProfiler::VisitOMPNontemporalClause(
     const OMPNontemporalClause *C) {
   VisitOMPClauseList(C);
@@ -984,6 +988,11 @@ void StmtProfiler::VisitOMPParallelMasterDirective(
   VisitOMPExecutableDirective(S);
 }
 
+void StmtProfiler::VisitOMPParallelMaskedDirective(
+    const OMPParallelMaskedDirective *S) {
+  VisitOMPExecutableDirective(S);
+}
+
 void StmtProfiler::VisitOMPParallelSectionsDirective(
     const OMPParallelSectionsDirective *S) {
   VisitOMPExecutableDirective(S);
@@ -1083,6 +1092,11 @@ void StmtProfiler::VisitOMPTaskLoopSimdDirective(
 
 void StmtProfiler::VisitOMPMasterTaskLoopDirective(
     const OMPMasterTaskLoopDirective *S) {
+  VisitOMPLoopDirective(S);
+}
+
+void StmtProfiler::VisitOMPMaskedTaskLoopDirective(
+    const OMPMaskedTaskLoopDirective *S) {
   VisitOMPLoopDirective(S);
 }
 
@@ -1214,6 +1228,16 @@ void StmtProfiler::VisitOMPTeamsGenericLoopDirective(
 
 void StmtProfiler::VisitOMPTargetTeamsGenericLoopDirective(
     const OMPTargetTeamsGenericLoopDirective *S) {
+  VisitOMPLoopDirective(S);
+}
+
+void StmtProfiler::VisitOMPParallelGenericLoopDirective(
+    const OMPParallelGenericLoopDirective *S) {
+  VisitOMPLoopDirective(S);
+}
+
+void StmtProfiler::VisitOMPTargetParallelGenericLoopDirective(
+    const OMPTargetParallelGenericLoopDirective *S) {
   VisitOMPLoopDirective(S);
 }
 

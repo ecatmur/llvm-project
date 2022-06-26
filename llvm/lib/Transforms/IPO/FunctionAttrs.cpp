@@ -30,7 +30,6 @@
 #include "llvm/Analysis/CallGraphSCCPass.h"
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/Analysis/LazyCallGraph.h"
-#include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/MemoryLocation.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
@@ -45,6 +44,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/IR/ModuleSummaryIndex.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Use.h"
@@ -2014,12 +2014,13 @@ static bool addNoRecurseAttrsTopDown(Function &F) {
   // this function could be recursively (indirectly) called. Note that this
   // also detects if F is directly recursive as F is not yet marked as
   // a norecurse function.
-  for (auto *U : F.users()) {
-    auto *I = dyn_cast<Instruction>(U);
+  for (auto &U : F.uses()) {
+    auto *I = dyn_cast<Instruction>(U.getUser());
     if (!I)
       return false;
     CallBase *CB = dyn_cast<CallBase>(I);
-    if (!CB || !CB->getParent()->getParent()->doesNotRecurse())
+    if (!CB || !CB->isCallee(&U) ||
+        !CB->getParent()->getParent()->doesNotRecurse())
       return false;
   }
   F.setDoesNotRecurse();

@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Arithmetic/IR/Arithmetic.h"
-#include "mlir/Dialect/SCF/SCF.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tensor/Transforms/Transforms.h"
 #include "mlir/Pass/Pass.h"
@@ -22,6 +22,8 @@ using namespace mlir;
 namespace {
 struct TestTensorTransforms
     : public PassWrapper<TestTensorTransforms, OperationPass<>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(TestTensorTransforms)
+
   TestTensorTransforms() = default;
   TestTensorTransforms(const TestTensorTransforms &pass) : PassWrapper(pass) {}
 

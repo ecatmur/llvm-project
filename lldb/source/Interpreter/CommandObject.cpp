@@ -132,7 +132,7 @@ bool CommandObject::ParseOptions(Args &args, CommandReturnObject &result) {
       } else {
         // No error string, output the usage information into result
         options->GenerateOptionUsage(
-            result.GetErrorStream(), this,
+            result.GetErrorStream(), *this,
             GetCommandInterpreter().GetDebugger().GetTerminalWidth());
       }
     }
@@ -326,7 +326,7 @@ bool CommandObject::HelpTextContainsWord(llvm::StringRef search_word,
   if (!found_word && search_options && GetOptions() != nullptr) {
     StreamString usage_help;
     GetOptions()->GenerateOptionUsage(
-        usage_help, this,
+        usage_help, *this,
         GetCommandInterpreter().GetDebugger().GetTerminalWidth());
     if (!usage_help.Empty()) {
       llvm::StringRef usage_text = usage_help.GetString();
@@ -863,7 +863,7 @@ void CommandObject::GenerateHelpText(Stream &output_strm) {
   Options *options = GetOptions();
   if (options != nullptr) {
     options->GenerateOptionUsage(
-        output_strm, this,
+        output_strm, *this,
         GetCommandInterpreter().GetDebugger().GetTerminalWidth());
   }
   llvm::StringRef long_help = GetHelpLong();
@@ -1126,7 +1126,8 @@ CommandObject::ArgumentTableEntry CommandObject::g_arguments_data[] = {
     { eArgTypeCommand, "command", CommandCompletions::eNoCompletion, { nullptr, false }, "An LLDB Command line command element." },
     { eArgTypeColumnNum, "column", CommandCompletions::eNoCompletion, { nullptr, false }, "Column number in a source file." },
     { eArgTypeModuleUUID, "module-uuid", CommandCompletions::eModuleUUIDCompletion, { nullptr, false }, "A module UUID value." },
-    { eArgTypeSaveCoreStyle, "corefile-style", CommandCompletions::eNoCompletion, { nullptr, false }, "The type of corefile that lldb will try to create, dependant on this target's capabilities." }
+    { eArgTypeSaveCoreStyle, "corefile-style", CommandCompletions::eNoCompletion, { nullptr, false }, "The type of corefile that lldb will try to create, dependant on this target's capabilities." },
+    { eArgTypeLogHandler, "log-handler", CommandCompletions::eNoCompletion, { nullptr, false }, "The log handle that will be used to write out log messages." },
     // clang-format on
 };
 

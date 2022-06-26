@@ -36,7 +36,7 @@ using namespace llvm;
 
 static cl::opt<bool>
     OpaquePointersCL("opaque-pointers", cl::desc("Use opaque pointers"),
-                     cl::init(false));
+                     cl::init(true));
 
 LLVMContextImpl::LLVMContextImpl(LLVMContext &C)
     : DiagHandler(std::make_unique<DiagnosticHandler>()),
@@ -254,9 +254,13 @@ bool LLVMContextImpl::hasOpaquePointersValue() {
 }
 
 bool LLVMContextImpl::getOpaquePointers() {
-  if (LLVM_UNLIKELY(!(OpaquePointers.hasValue())))
-    OpaquePointers = false;
+  if (LLVM_UNLIKELY(!OpaquePointers))
+    OpaquePointers = OpaquePointersCL;
   return *OpaquePointers;
 }
 
-void LLVMContextImpl::setOpaquePointers(bool OP) { OpaquePointers = OP; }
+void LLVMContextImpl::setOpaquePointers(bool OP) {
+  assert((!OpaquePointers || OpaquePointers.getValue() == OP) &&
+         "Cannot change opaque pointers mode once set");
+  OpaquePointers = OP;
+}

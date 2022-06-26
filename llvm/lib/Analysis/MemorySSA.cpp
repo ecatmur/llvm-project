@@ -130,6 +130,12 @@ public:
   MemorySSAWalkerAnnotatedWriter(MemorySSA *M)
       : MSSA(M), Walker(M->getWalker()) {}
 
+  void emitBasicBlockStartAnnot(const BasicBlock *BB,
+                                formatted_raw_ostream &OS) override {
+    if (MemoryAccess *MA = MSSA->getMemoryAccess(BB))
+      OS << "; " << *MA << "\n";
+  }
+
   void emitInstructionAnnot(const Instruction *I,
                             formatted_raw_ostream &OS) override {
     if (MemoryAccess *MA = MSSA->getMemoryAccess(I)) {
@@ -745,7 +751,7 @@ template <class AliasAnalysisType> class ClobberWalker {
     bool operator==(const generic_def_path_iterator &O) const {
       if (N.hasValue() != O.N.hasValue())
         return false;
-      return !N.hasValue() || *N == *O.N;
+      return !N || *N == *O.N;
     }
 
   private:

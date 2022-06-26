@@ -62,15 +62,26 @@ static cl::opt<bool> Help("h", cl::desc("Alias for -help"), cl::Hidden);
 // and -help) will be hidden.
 static cl::OptionCategory
     ClangOffloadBundlerCategory("clang-offload-bundler options");
-
 static cl::list<std::string>
-    InputFileNames("inputs", cl::CommaSeparated, cl::OneOrMore,
-                   cl::desc("[<input file>,...]"),
+    InputFileNames("input",
+                   cl::desc("Input file."
+                            " Can be specified multiple times "
+                            "for multiple input files."),
                    cl::cat(ClangOffloadBundlerCategory));
 static cl::list<std::string>
-    OutputFileNames("outputs", cl::CommaSeparated,
-                    cl::desc("[<output file>,...]"),
+    InputFileNamesDeprecatedOpt("inputs", cl::CommaSeparated,
+                                cl::desc("[<input file>,...] (deprecated)"),
+                                cl::cat(ClangOffloadBundlerCategory));
+static cl::list<std::string>
+    OutputFileNames("output",
+                    cl::desc("Output file."
+                             " Can be specified multiple times "
+                             "for multiple output files."),
                     cl::cat(ClangOffloadBundlerCategory));
+static cl::list<std::string>
+    OutputFileNamesDeprecatedOpt("outputs", cl::CommaSeparated,
+                                 cl::desc("[<output file>,...] (deprecated)"),
+                                 cl::cat(ClangOffloadBundlerCategory));
 static cl::list<std::string>
     TargetNames("targets", cl::CommaSeparated,
                 cl::desc("[<offload kind>-<target triple>,...]"),
@@ -1244,7 +1255,7 @@ static Error UnbundleArchive() {
 
     Optional<StringRef> OptionalCurBundleID = *CurBundleIDOrErr;
     // No device code in this child, skip.
-    if (!OptionalCurBundleID.hasValue())
+    if (!OptionalCurBundleID)
       continue;
     StringRef CodeObject = *OptionalCurBundleID;
 
@@ -1307,7 +1318,7 @@ static Error UnbundleArchive() {
       if (!NextTripleOrErr)
         return NextTripleOrErr.takeError();
 
-      CodeObject = ((*NextTripleOrErr).hasValue()) ? **NextTripleOrErr : "";
+      CodeObject = NextTripleOrErr->value_or("");
     } // End of processing of all bundle entries of this child of input archive.
   }   // End of while over children of input archive.
 
@@ -1384,6 +1395,38 @@ int main(int argc, const char **argv) {
     }
   };
 
+  auto warningOS = [argv]() -> raw_ostream & {
+    return WithColor::warning(errs(), StringRef(argv[0]));
+  };
+
+  if (InputFileNames.getNumOccurrences() != 0 &&
+      InputFileNamesDeprecatedOpt.getNumOccurrences() != 0) {
+    reportError(createStringError(
+        errc::invalid_argument,
+        "-inputs and -input cannot be used together, use only -input instead"));
+  }
+  if (InputFileNamesDeprecatedOpt.size()) {
+    warningOS() << "-inputs is deprecated, use -input instead\n";
+    // temporary hack to support -inputs
+    std::vector<std::string> &s = InputFileNames;
+    s.insert(s.end(), InputFileNamesDeprecatedOpt.begin(),
+             InputFileNamesDeprecatedOpt.end());
+  }
+
+  if (OutputFileNames.getNumOccurrences() != 0 &&
+      OutputFileNamesDeprecatedOpt.getNumOccurrences() != 0) {
+    reportError(createStringError(errc::invalid_argument,
+                                  "-outputs and -output cannot be used "
+                                  "together, use only -output instead"));
+  }
+  if (OutputFileNamesDeprecatedOpt.size()) {
+    warningOS() << "-outputs is deprecated, use -output instead\n";
+    // temporary hack to support -outputs
+    std::vector<std::string> &s = OutputFileNames;
+    s.insert(s.end(), OutputFileNamesDeprecatedOpt.begin(),
+             OutputFileNamesDeprecatedOpt.end());
+  }
+
   if (ListBundleIDs) {
     if (Unbundle) {
       reportError(
@@ -1407,10 +1450,9 @@ int main(int argc, const char **argv) {
     return 0;
   }
 
-  if (OutputFileNames.getNumOccurrences() == 0) {
-    reportError(createStringError(
-        errc::invalid_argument,
-        "for the --outputs option: must be specified at least once!"));
+  if (OutputFileNames.size() == 0) {
+    reportError(
+        createStringError(errc::invalid_argument, "no output file specified!"));
   }
   if (TargetNames.getNumOccurrences() == 0) {
     reportError(createStringError(

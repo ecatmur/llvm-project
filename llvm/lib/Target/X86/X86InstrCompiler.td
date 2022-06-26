@@ -562,12 +562,14 @@ let usesCustomInserter = 1, hasNoSchedulingInfo = 1, Uses = [EFLAGS] in {
   let Predicates = [HasMMX] in
     defm _VR64   : CMOVrr_PSEUDO<VR64, x86mmx>;
 
-  defm _FR16X    : CMOVrr_PSEUDO<FR16X, f16>;
   let Predicates = [HasSSE1,NoAVX512] in
     defm _FR32   : CMOVrr_PSEUDO<FR32, f32>;
-  let Predicates = [HasSSE2,NoAVX512] in
+  let Predicates = [HasSSE2,NoAVX512] in {
+    defm _FR16   : CMOVrr_PSEUDO<FR16, f16>;
     defm _FR64   : CMOVrr_PSEUDO<FR64, f64>;
+  }
   let Predicates = [HasAVX512] in {
+    defm _FR16X  : CMOVrr_PSEUDO<FR16X, f16>;
     defm _FR32X  : CMOVrr_PSEUDO<FR32X, f32>;
     defm _FR64X  : CMOVrr_PSEUDO<FR64X, f64>;
   }
@@ -1513,6 +1515,21 @@ def ADD64ri32_DB : I<0, Pseudo,
                                                  i64immSExt32:$src2))]>;
 }
 } // AddedComplexity, SchedRW
+
+//===----------------------------------------------------------------------===//
+// Pattern match XOR as ADD
+//===----------------------------------------------------------------------===//
+
+// Prefer to pattern match XOR with min_signed_value as ADD at isel time.
+// ADD can be 3-addressified into an LEA instruction to avoid copies.
+let AddedComplexity = 5 in {
+def : Pat<(xor GR8:$src1, -128),
+          (ADD8ri GR8:$src1, -128)>;
+def : Pat<(xor GR16:$src1, -32768),
+          (ADD16ri GR16:$src1, -32768)>;
+def : Pat<(xor GR32:$src1, -2147483648),
+          (ADD32ri GR32:$src1, -2147483648)>;
+}
 
 //===----------------------------------------------------------------------===//
 // Pattern match SUB as XOR

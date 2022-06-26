@@ -19,10 +19,19 @@ def DocCatType : DocumentationCategory<"Type Attributes">;
 def DocCatStmt : DocumentationCategory<"Statement Attributes">;
 def DocCatDecl : DocumentationCategory<"Declaration Attributes">;
 
-// Attributes listed under the Undocumented category do not generate any public
-// documentation. Ideally, this category should be used for internal-only
-// attributes which contain no spellings.
-def DocCatUndocumented : DocumentationCategory<"Undocumented">;
+// This category is for attributes which have not yet been properly documented,
+// but should be.
+def DocCatUndocumented : DocumentationCategory<"Undocumented"> {
+  let Content = [{
+This section lists attributes which are recognized by Clang, but which are
+currently missing documentation.
+}];
+}
+
+// Attributes listed under the InternalOnly category do not generate any entry
+// in the documentation.  This category should be used only when we _want_
+// to not document the attribute, e.g. if the attribute has no spellings.
+def DocCatInternalOnly : DocumentationCategory<"InternalOnly">;
 
 class DocDeprecated<string replacement = ""> {
   // If the Replacement field is empty, no replacement will be listed with the
@@ -48,11 +57,17 @@ class Documentation {
   DocDeprecated Deprecated;
 }
 
-// Specifies that the attribute is explicitly undocumented. This can be a
-// helpful placeholder for the attribute while working on the implementation,
-// but should not be used once feature work has been completed.
+// Specifies that the attribute is explicitly omitted from the documentation,
+// because it is not intended to be user-facing.
+def InternalOnly : Documentation {
+  let Category = DocCatInternalOnly;
+}
+
+// Specifies that the attribute is undocumented, but that it _should_ have
+// documentation.
 def Undocumented : Documentation {
   let Category = DocCatUndocumented;
+  let Content = "No documentation.";
 }
 
 include "clang/Basic/AttrDocs.td"
@@ -125,6 +140,11 @@ def FunctionTmpl
     : SubsetSubject<Function, [{S->getTemplatedKind() ==
                                  FunctionDecl::TK_FunctionTemplate}],
                     "function templates">;
+
+def HLSLEntry
+    : SubsetSubject<Function,
+                    [{S->isExternallyVisible() && !isa<CXXMethodDecl>(S)}],
+                    "global functions">;
 
 def ClassTmpl : SubsetSubject<CXXRecord, [{S->getDescribedClassTemplate()}],
                               "class templates">;
@@ -295,6 +315,9 @@ class Clang<string name, bit allowInC = 1> : Spelling<name, "Clang"> {
   bit AllowInC = allowInC;
 }
 
+// HLSL Semantic spellings
+class HLSLSemantic<string name> : Spelling<name, "HLSLSemantic">;
+
 class Accessor<string name, list<Spelling> spellings> {
   string Name = name;
   list<Spelling> Spellings = spellings;
@@ -335,6 +358,8 @@ def BlocksSupported : LangOpt<"Blocks">;
 def ObjCAutoRefCount : LangOpt<"ObjCAutoRefCount">;
 def ObjCNonFragileRuntime
     : LangOpt<"", "LangOpts.ObjCRuntime.allowsClassStubs()">;
+
+def HLSL : LangOpt<"HLSL">;
 
 // Language option for CMSE extensions
 def Cmse : LangOpt<"Cmse">;
@@ -616,7 +641,7 @@ class IgnoredAttr : Attr {
   let Ignored = 1;
   let ASTNode = 0;
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 //
@@ -696,14 +721,14 @@ def AlignMac68k : InheritableAttr {
   // This attribute has no spellings as it is only ever created implicitly.
   let Spellings = [];
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def AlignNatural : InheritableAttr {
   // This attribute has no spellings as it is only ever created implicitly.
   let Spellings = [];
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def AlwaysInline : DeclOrStmtAttr {
@@ -794,6 +819,14 @@ def Annotate : InheritableParamAttr {
   let Documentation = [Undocumented];
 }
 
+def AnnotateType : TypeAttr {
+  let Spellings = [CXX11<"clang", "annotate_type">, C2x<"clang", "annotate_type">];
+  let Args = [StringArgument<"Annotation">, VariadicExprArgument<"Args">];
+  let HasCustomParsing = 1;
+  let AcceptsExprPack = 1;
+  let Documentation = [AnnotateTypeDocs];
+}
+
 def ARMInterrupt : InheritableAttr, TargetSpecificAttr<TargetARM> {
   // NOTE: If you add any additional spellings, M68kInterrupt's,
   // MSP430Interrupt's, MipsInterrupt's and AnyX86Interrupt's spellings
@@ -860,6 +893,7 @@ def Availability : InheritableAttr {
              .Case("macos", "macOS")
              .Case("tvos", "tvOS")
              .Case("watchos", "watchOS")
+             .Case("driverkit", "DriverKit")
              .Case("ios_app_extension", "iOS (App Extension)")
              .Case("macos_app_extension", "macOS (App Extension)")
              .Case("tvos_app_extension", "tvOS (App Extension)")
@@ -1169,7 +1203,7 @@ def CUDAInvalidTarget : InheritableAttr {
   let Spellings = [];
   let Subjects = SubjectList<[Function]>;
   let LangOpts = [CUDA];
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def CUDALaunchBounds : InheritableAttr {
@@ -1421,13 +1455,15 @@ def Final : InheritableAttr {
   let Spellings = [Keyword<"final">, Keyword<"sealed">];
   let Accessors = [Accessor<"isSpelledAsSealed", [Keyword<"sealed">]>];
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  // Omitted from docs, since this is language syntax, not an attribute, as far
+  // as users are concerned.
+  let Documentation = [InternalOnly];
 }
 
 def MinSize : InheritableAttr {
   let Spellings = [Clang<"minsize">];
   let Subjects = SubjectList<[Function, ObjCMethod], ErrorDiag>;
-  let Documentation = [Undocumented];
+  let Documentation = [MinSizeDocs];
 }
 
 def FlagEnum : InheritableAttr {
@@ -1483,8 +1519,6 @@ def GNUInline : InheritableAttr {
 def Hot : InheritableAttr {
   let Spellings = [GCC<"hot">];
   let Subjects = SubjectList<[Function]>;
-  // An AST node is created for this attribute, but not actually used beyond
-  // semantic checking for mutual exclusion with the Cold attribute.
   let Documentation = [Undocumented];
   let SimpleHandler = 1;
 }
@@ -1563,7 +1597,7 @@ def MaxFieldAlignment : InheritableAttr {
   let Spellings = [];
   let Args = [UnsignedArgument<"Alignment">];
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def MayAlias : InheritableAttr {
@@ -1765,8 +1799,9 @@ def Convergent : InheritableAttr {
 }
 
 def NoInline : DeclOrStmtAttr {
-  let Spellings = [GCC<"noinline">, CXX11<"clang", "noinline">,
-                   C2x<"clang", "noinline">, Declspec<"noinline">];
+  let Spellings = [Keyword<"__noinline__">, GCC<"noinline">,
+                   CXX11<"clang", "noinline">, C2x<"clang", "noinline">,
+                   Declspec<"noinline">];
   let Accessors = [Accessor<"isClangNoInline", [CXX11<"clang", "noinline">,
                                                 C2x<"clang", "noinline">]>];
   let Documentation = [NoInlineDocs];
@@ -1845,6 +1880,11 @@ def AMDGPUNumVGPR : InheritableAttr {
   let Subjects = SubjectList<[Function], ErrorDiag, "kernel functions">;
 }
 
+def AMDGPUKernelCall : DeclOrTypeAttr {
+  let Spellings = [Clang<"amdgpu_kernel">];
+  let Documentation = [Undocumented];
+}
+
 def BPFPreserveAccessIndex : InheritableAttr,
                              TargetSpecificAttr<TargetBPF>  {
   let Spellings = [Clang<"preserve_access_index">];
@@ -1909,9 +1949,9 @@ def NonNull : InheritableParamAttr {
     bool isNonNull(unsigned IdxAST) const {
       if (!args_size())
         return true;
-      return args_end() != std::find_if(
-          args_begin(), args_end(),
-          [=](const ParamIdx &Idx) { return Idx.getASTIndex() == IdxAST; });
+      return llvm::any_of(args(), [=](const ParamIdx &Idx) {
+        return Idx.getASTIndex() == IdxAST;
+      });
     }
   }];
   // FIXME: We should merge duplicates into a single nonnull attribute.
@@ -1969,7 +2009,7 @@ def TypeNullUnspecified : TypeAttr {
 // qualifier is as an ObjCOwnership attribute with Kind == "none".
 def ObjCInertUnsafeUnretained : TypeAttr {
   let Spellings = [Keyword<"__unsafe_unretained">];
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def ObjCKindOf : TypeAttr {
@@ -2253,7 +2293,9 @@ def Overloadable : Attr {
 def Override : InheritableAttr {
   let Spellings = [Keyword<"override">];
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  // Omitted from docs, since this is language syntax, not an attribute, as far
+  // as users are concerned.
+  let Documentation = [InternalOnly];
 }
 
 def Ownership : InheritableAttr {
@@ -2300,6 +2342,11 @@ def Pcs : DeclOrTypeAttr {
 def AArch64VectorPcs: DeclOrTypeAttr {
   let Spellings = [Clang<"aarch64_vector_pcs">];
   let Documentation = [AArch64VectorPcsDocs];
+}
+
+def AArch64SVEPcs: DeclOrTypeAttr {
+  let Spellings = [Clang<"aarch64_sve_pcs">];
+  let Documentation = [AArch64SVEPcsDocs];
 }
 
 def Pure : InheritableAttr {
@@ -2437,7 +2484,7 @@ def PragmaClangBSSSection : InheritableAttr {
   let Spellings = [];
   let Args = [StringArgument<"Name">];
   let Subjects = SubjectList<[GlobalVar], ErrorDiag>;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def PragmaClangDataSection : InheritableAttr {
@@ -2445,7 +2492,7 @@ def PragmaClangDataSection : InheritableAttr {
   let Spellings = [];
   let Args = [StringArgument<"Name">];
   let Subjects = SubjectList<[GlobalVar], ErrorDiag>;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def PragmaClangRodataSection : InheritableAttr {
@@ -2453,7 +2500,7 @@ def PragmaClangRodataSection : InheritableAttr {
   let Spellings = [];
   let Args = [StringArgument<"Name">];
   let Subjects = SubjectList<[GlobalVar], ErrorDiag>;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def PragmaClangRelroSection : InheritableAttr {
@@ -2461,7 +2508,7 @@ def PragmaClangRelroSection : InheritableAttr {
   let Spellings = [];
   let Args = [StringArgument<"Name">];
   let Subjects = SubjectList<[GlobalVar], ErrorDiag>;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def StrictFP : InheritableAttr {
@@ -2469,7 +2516,7 @@ def StrictFP : InheritableAttr {
   // Function uses strict floating point operations.
   let Spellings = [];
   let Subjects = SubjectList<[Function]>;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def PragmaClangTextSection : InheritableAttr {
@@ -2477,7 +2524,7 @@ def PragmaClangTextSection : InheritableAttr {
   let Spellings = [];
   let Args = [StringArgument<"Name">];
   let Subjects = SubjectList<[Function], ErrorDiag>;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def Sentinel : InheritableAttr {
@@ -2716,8 +2763,12 @@ def TargetClones : InheritableAttr {
     StringRef getFeatureStr(unsigned Index) const {
       return *(featuresStrs_begin() + Index);
     }
-    // 'default' is always moved to the end, so it isn't considered
-    // when mangling the index.
+    // Given an index into the 'featuresStrs' sequence, compute a unique
+    // ID to be used with function name mangling for the associated variant.
+    // This mapping is necessary due to a requirement that the mangling ID
+    // used for the "default" variant be the largest mangling ID in the
+    // variant set. Duplicate variants present in 'featuresStrs' are also
+    // assigned their own unique ID (the mapping is bijective).
     unsigned getMangledIndex(unsigned Index) const {
       if (getFeatureStr(Index) == "default")
         return std::count_if(featuresStrs_begin(), featuresStrs_end(),
@@ -2727,9 +2778,10 @@ def TargetClones : InheritableAttr {
                            [](StringRef S) { return S != "default"; });
     }
 
-    // True if this is the first of this version to appear in the config string.
-    // This is used to make sure we don't try to emit this function multiple
-    // times.
+    // Given an index into the 'featuresStrs' sequence, determine if the
+    // index corresponds to the first instance of the named variant. This
+    // is used to skip over duplicate variant instances when iterating over
+    // 'featuresStrs'.
     bool isFirstOfVersion(unsigned Index) const {
       StringRef FeatureStr(getFeatureStr(Index));
       return 0 == std::count_if(
@@ -2917,7 +2969,7 @@ def WarnUnusedResult : InheritableAttr {
                    C2x<"", "nodiscard", 201904>,
                    CXX11<"clang", "warn_unused_result">,
                    GCC<"warn_unused_result">];
-  let Subjects = SubjectList<[ObjCMethod, Enum, Record, FunctionLike]>;
+  let Subjects = SubjectList<[ObjCMethod, Enum, Record, FunctionLike, TypedefName]>;
   let Args = [StringArgument<"Message", 1>];
   let Documentation = [WarnUnusedResultsDocs];
   let AdditionalMembers = [{
@@ -2932,7 +2984,7 @@ def WarnUnusedResult : InheritableAttr {
 def Weak : InheritableAttr {
   let Spellings = [GCC<"weak">];
   let Subjects = SubjectList<[Var, Function, CXXRecord]>;
-  let Documentation = [Undocumented];
+  let Documentation = [WeakDocs];
   let SimpleHandler = 1;
 }
 
@@ -3461,7 +3513,7 @@ def DLLExportStaticLocal : InheritableAttr, TargetSpecificAttr<TargetHasDLLImpor
   // the function has local static variables, the function is dllexported too.
   let Spellings = [];
   let Subjects = SubjectList<[Function]>;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def DLLImport : InheritableAttr, TargetSpecificAttr<TargetHasDLLImportExport> {
@@ -3487,7 +3539,7 @@ def DLLImportStaticLocal : InheritableAttr, TargetSpecificAttr<TargetHasDLLImpor
   // attribute is used to determine whether the variables are imported or not.
   let Spellings = [];
   let Subjects = SubjectList<[Function]>;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def SelectAny : InheritableAttr {
@@ -3553,7 +3605,7 @@ def MSVtorDisp : InheritableAttr {
   let AdditionalMembers = [{
   MSVtorDispMode getVtorDispMode() const { return MSVtorDispMode(vdm); }
   }];
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def InitSeg : Attr {
@@ -3645,21 +3697,21 @@ def CapturedRecord : InheritableAttr {
   // This attribute has no spellings as it is only ever created implicitly.
   let Spellings = [];
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def OMPThreadPrivateDecl : InheritableAttr {
   // This attribute has no spellings as it is only ever created implicitly.
   let Spellings = [];
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def OMPCaptureNoInit : InheritableAttr {
   // This attribute has no spellings as it is only ever created implicitly.
   let Spellings = [];
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def OMPCaptureKind : Attr {
@@ -3667,7 +3719,7 @@ def OMPCaptureKind : Attr {
   let Spellings = [];
   let SemaHandler = 0;
   let Args = [UnsignedArgument<"CaptureKindVal">];
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
   let AdditionalMembers = [{
     llvm::omp::Clause getCaptureKind() const {
       return static_cast<llvm::omp::Clause>(getCaptureKindVal());
@@ -3680,7 +3732,7 @@ def OMPReferencedVar : Attr {
   let Spellings = [];
   let SemaHandler = 0;
   let Args = [ExprArgument<"Ref">];
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def OMPDeclareSimdDecl : Attr {
@@ -3753,7 +3805,7 @@ def OMPAllocateDecl : InheritableAttr {
     ExprArgument<"Allocator">,
     ExprArgument<"Alignment">
   ];
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def OMPDeclareVariant : InheritableAttr {
@@ -3910,12 +3962,12 @@ def Builtin : InheritableAttr {
   let Args = [UnsignedArgument<"ID">];
   let Subjects = SubjectList<[Function]>;
   let SemaHandler = 0;
-  let Documentation = [Undocumented];
+  let Documentation = [InternalOnly];
 }
 
 def EnforceTCB : InheritableAttr {
   let Spellings = [Clang<"enforce_tcb">];
-  let Subjects = SubjectList<[Function]>;
+  let Subjects = SubjectList<[Function, ObjCMethod]>;
   let Args = [StringArgument<"TCBName">];
   let Documentation = [EnforceTCBDocs];
   bit InheritEvenIfAlreadyPresent = 1;
@@ -3923,7 +3975,7 @@ def EnforceTCB : InheritableAttr {
 
 def EnforceTCBLeaf : InheritableAttr {
   let Spellings = [Clang<"enforce_tcb_leaf">];
-  let Subjects = SubjectList<[Function]>;
+  let Subjects = SubjectList<[Function, ObjCMethod]>;
   let Args = [StringArgument<"TCBName">];
   let Documentation = [EnforceTCBLeafDocs];
   bit InheritEvenIfAlreadyPresent = 1;
@@ -3937,3 +3989,50 @@ def Error : InheritableAttr {
   let Subjects = SubjectList<[Function], ErrorDiag>;
   let Documentation = [ErrorAttrDocs];
 }
+
+def HLSLNumThreads: InheritableAttr {
+  let Spellings = [Microsoft<"numthreads">];
+  let Args = [IntArgument<"X">, IntArgument<"Y">, IntArgument<"Z">];
+  let Subjects = SubjectList<[HLSLEntry]>;
+  let LangOpts = [HLSL];
+  let Documentation = [NumThreadsDocs];
+}
+
+def HLSLSV_GroupIndex: InheritableAttr {
+  let Spellings = [HLSLSemantic<"SV_GroupIndex">];
+  let Subjects = SubjectList<[ParmVar, GlobalVar]>;
+  let LangOpts = [HLSL];
+  let Documentation = [HLSLSV_GroupIndexDocs];
+}
+
+def HLSLShader : InheritableAttr {
+  let Spellings = [Microsoft<"shader">];
+  let Subjects = SubjectList<[HLSLEntry]>;
+  let LangOpts = [HLSL];
+  let Args = [EnumArgument<"Type", "ShaderType",
+                           ["pixel", "vertex", "geometry", "hull", "domain",
+                            "compute", "raygeneration", "intersection",
+                            "anyhit", "closesthit", "miss", "callable", "mesh",
+                            "amplification"],
+                           ["Pixel", "Vertex", "Geometry", "Hull", "Domain",
+                            "Compute", "RayGeneration", "Intersection",
+                            "AnyHit", "ClosestHit", "Miss", "Callable", "Mesh",
+                            "Amplification"]
+                           >];
+  let Documentation = [HLSLSV_ShaderTypeAttrDocs];
+}
+
+def RandomizeLayout : InheritableAttr {
+  let Spellings = [GCC<"randomize_layout">];
+  let Subjects = SubjectList<[Record]>;
+  let Documentation = [ClangRandomizeLayoutDocs];
+  let LangOpts = [COnly];
+}
+
+def NoRandomizeLayout : InheritableAttr {
+  let Spellings = [GCC<"no_randomize_layout">];
+  let Subjects = SubjectList<[Record]>;
+  let Documentation = [ClangRandomizeLayoutDocs];
+  let LangOpts = [COnly];
+}
+def : MutualExclusions<[RandomizeLayout, NoRandomizeLayout]>;

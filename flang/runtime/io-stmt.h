@@ -16,6 +16,7 @@
 #include "format.h"
 #include "internal-unit.h"
 #include "io-error.h"
+#include "flang/Common/visit.h"
 #include "flang/Runtime/descriptor.h"
 #include "flang/Runtime/io-api.h"
 #include <functional>
@@ -90,6 +91,7 @@ public:
   bool Emit(const char *, std::size_t);
   bool Emit(const char16_t *, std::size_t chars);
   bool Emit(const char32_t *, std::size_t chars);
+  template <typename CHAR> bool EmitEncoded(const CHAR *, std::size_t);
   bool Receive(char *, std::size_t, std::size_t elementBytes = 0);
   std::size_t GetNextInputBytes(const char *&);
   bool AdvanceRecord(int = 1);
@@ -112,7 +114,7 @@ public:
 
   // N.B.: this also works with base classes
   template <typename A> A *get_if() const {
-    return std::visit(
+    return common::visit(
         [](auto &x) -> A * {
           if constexpr (std::is_convertible_v<decltype(x.get()), A &>) {
             return &x.get();
@@ -123,16 +125,7 @@ public:
   }
 
   // Vacant after the end of the current record
-  std::optional<char32_t> GetCurrentChar() {
-    const char *p{nullptr};
-    std::size_t bytes{GetNextInputBytes(p)};
-    if (bytes == 0) {
-      return std::nullopt;
-    } else {
-      // TODO: UTF-8 decoding; may have to get more bytes in a loop
-      return *p;
-    }
-  }
+  std::optional<char32_t> GetCurrentChar(std::size_t &byteCount);
 
   bool EmitRepeated(char, std::size_t);
   bool EmitField(const char *, std::size_t length, std::size_t width);
@@ -143,8 +136,9 @@ public:
   std::optional<char32_t> PrepareInput(
       const DataEdit &edit, std::optional<int> &remaining) {
     remaining.reset();
-    if (edit.descriptor == DataEdit::ListDirected) {
-      GetNextNonBlank();
+    if (edit.IsListDirected()) {
+      std::size_t byteCount{0};
+      GetNextNonBlank(byteCount);
     } else {
       if (edit.width.value_or(0) > 0) {
         remaining = *edit.width;
@@ -156,15 +150,19 @@ public:
 
   std::optional<char32_t> SkipSpaces(std::optional<int> &remaining) {
     while (!remaining || *remaining > 0) {
-      if (auto ch{GetCurrentChar()}) {
+      std::size_t byteCount{0};
+      if (auto ch{GetCurrentChar(byteCount)}) {
         if (*ch != ' ' && *ch != '\t') {
           return ch;
         }
-        HandleRelativePosition(1);
         if (remaining) {
-          GotChar();
-          --*remaining;
+          if (static_cast<std::size_t>(*remaining) < byteCount) {
+            break;
+          }
+          GotChar(byteCount);
+          *remaining -= byteCount;
         }
+        HandleRelativePosition(byteCount);
       } else {
         break;
       }
@@ -182,25 +180,30 @@ public:
   bool CheckForEndOfRecord();
 
   // Skips spaces, advances records, and ignores NAMELIST comments
-  std::optional<char32_t> GetNextNonBlank() {
-    auto ch{GetCurrentChar()};
+  std::optional<char32_t> GetNextNonBlank(std::size_t &byteCount) {
+    auto ch{GetCurrentChar(byteCount)};
     bool inNamelist{mutableModes().inNamelist};
     while (!ch || *ch == ' ' || *ch == '\t' || (inNamelist && *ch == '!')) {
       if (ch && (*ch == ' ' || *ch == '\t')) {
-        HandleRelativePosition(1);
+        HandleRelativePosition(byteCount);
       } else if (!AdvanceRecord()) {
         return std::nullopt;
       }
-      ch = GetCurrentChar();
+      ch = GetCurrentChar(byteCount);
     }
     return ch;
   }
 
-  template <Direction D> void CheckFormattedStmtType(const char *name) {
-    if (!get_if<FormattedIoStatementState<D>>()) {
-      GetIoErrorHandler().Crash(
-          "%s called for I/O statement that is not formatted %s", name,
-          D == Direction::Output ? "output" : "input");
+  template <Direction D> bool CheckFormattedStmtType(const char *name) {
+    if (get_if<FormattedIoStatementState<D>>()) {
+      return true;
+    } else {
+      if (!get_if<ErroneousIoStatementState>()) {
+        GetIoErrorHandler().Crash(
+            "%s called for I/O statement that is not formatted %s", name,
+            D == Direction::Output ? "output" : "input");
+      }
+      return false;
     }
   }
 
@@ -409,12 +412,14 @@ public:
   ExternalFileUnit &unit() { return unit_; }
   MutableModes &mutableModes();
   ConnectionState &GetConnectionState();
-  void CompleteOperation();
+  int asynchronousID() const { return asynchronousID_; }
   int EndIoStatement();
   ExternalFileUnit *GetExternalFileUnit() const { return &unit_; }
+  void SetAsynchronous();
 
 private:
   ExternalFileUnit &unit_;
+  int asynchronousID_{-1};
 };
 
 template <Direction DIR>
@@ -585,29 +590,35 @@ private:
   CloseStatus status_{CloseStatus::Keep};
 };
 
-// For CLOSE(bad unit) and INQUIRE(unconnected unit)
+// For CLOSE(bad unit), WAIT(bad unit, ID=nonzero), INQUIRE(unconnected unit),
+// and recoverable BACKSPACE(bad unit)
 class NoUnitIoStatementState : public IoStatementBase {
 public:
   IoStatementState &ioStatementState() { return ioStatementState_; }
   MutableModes &mutableModes() { return connection_.modes; }
   ConnectionState &GetConnectionState() { return connection_; }
+  int badUnitNumber() const { return badUnitNumber_; }
   void CompleteOperation();
   int EndIoStatement();
 
 protected:
   template <typename A>
-  NoUnitIoStatementState(const char *sourceFile, int sourceLine, A &stmt)
-      : IoStatementBase{sourceFile, sourceLine}, ioStatementState_{stmt} {}
+  NoUnitIoStatementState(A &stmt, const char *sourceFile = nullptr,
+      int sourceLine = 0, int badUnitNumber = -1)
+      : IoStatementBase{sourceFile, sourceLine}, ioStatementState_{stmt},
+        badUnitNumber_{badUnitNumber} {}
 
 private:
   IoStatementState ioStatementState_; // points to *this
   ConnectionState connection_;
+  int badUnitNumber_;
 };
 
 class NoopStatementState : public NoUnitIoStatementState {
 public:
-  NoopStatementState(const char *sourceFile, int sourceLine)
-      : NoUnitIoStatementState{sourceFile, sourceLine, *this} {}
+  NoopStatementState(
+      const char *sourceFile = nullptr, int sourceLine = 0, int unitNumber = -1)
+      : NoUnitIoStatementState{*this, sourceFile, sourceLine, unitNumber} {}
   void set_status(CloseStatus) {} // discards
 };
 
@@ -659,7 +670,8 @@ public:
 
 class InquireNoUnitState : public NoUnitIoStatementState {
 public:
-  InquireNoUnitState(const char *sourceFile = nullptr, int sourceLine = 0);
+  InquireNoUnitState(const char *sourceFile = nullptr, int sourceLine = 0,
+      int badUnitNumber = -1);
   bool Inquire(InquiryKeywordHash, char *, std::size_t);
   bool Inquire(InquiryKeywordHash, bool &);
   bool Inquire(InquiryKeywordHash, std::int64_t, bool &);
@@ -695,7 +707,7 @@ private:
 
 class ExternalMiscIoStatementState : public ExternalIoStatementBase {
 public:
-  enum Which { Flush, Backspace, Endfile, Rewind };
+  enum Which { Flush, Backspace, Endfile, Rewind, Wait };
   ExternalMiscIoStatementState(ExternalFileUnit &unit, Which which,
       const char *sourceFile = nullptr, int sourceLine = 0)
       : ExternalIoStatementBase{unit, sourceFile, sourceLine}, which_{which} {}
@@ -708,9 +720,10 @@ private:
 
 class ErroneousIoStatementState : public IoStatementBase {
 public:
-  explicit ErroneousIoStatementState(
-      Iostat iostat, const char *sourceFile = nullptr, int sourceLine = 0)
-      : IoStatementBase{sourceFile, sourceLine} {
+  explicit ErroneousIoStatementState(Iostat iostat,
+      ExternalFileUnit *unit = nullptr, const char *sourceFile = nullptr,
+      int sourceLine = 0)
+      : IoStatementBase{sourceFile, sourceLine}, unit_{unit} {
     SetPendingError(iostat);
   }
   int EndIoStatement();
@@ -719,7 +732,15 @@ public:
 
 private:
   ConnectionState connection_;
+  ExternalFileUnit *unit_{nullptr};
 };
+
+extern template bool IoStatementState::EmitEncoded<char>(
+    const char *, std::size_t);
+extern template bool IoStatementState::EmitEncoded<char16_t>(
+    const char16_t *, std::size_t);
+extern template bool IoStatementState::EmitEncoded<char32_t>(
+    const char32_t *, std::size_t);
 
 } // namespace Fortran::runtime::io
 #endif // FORTRAN_RUNTIME_IO_STMT_H_

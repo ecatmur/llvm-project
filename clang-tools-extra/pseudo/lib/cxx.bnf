@@ -13,6 +13,9 @@
 #  - the file merely describes the core C++ grammar. Preprocessor directives and
 #    lexical conversions are omitted as we reuse clang's lexer and run a fake
 #    preprocessor;
+#  - grammar rules with the >> token are adjusted, the greatergreater token is
+#    split into two > tokens, to make the GLR parser aware of nested templates
+#    and right shift operator;
 #
 # Guidelines:
 #   - nonterminals are lower_case; terminals (aka tokens) correspond to
@@ -20,10 +23,15 @@
 #   - optional symbols are supported, with a _opt suffix;
 #
 # [1] https://isocpp.org/files/papers/N4860.pdf
+
+# _ lists all the start-symbols which we support parsing.
 #
-#
-# _ serves as a "fake" start symbol, coming with real grammar symbols.
+# We list important nonterminals as start symbols, rather than doing it for all
+# nonterminals by default, this reduces the number of states by 30% and LRTable
+# actions by 16%.
 _ := translation-unit
+_ := statement-seq
+_ := declaration-seq
 
 # gram.key
 typedef-name := IDENTIFIER
@@ -96,7 +104,7 @@ fold-operator := %
 fold-operator := ^
 fold-operator := |
 fold-operator := <<
-fold-operator := >>
+fold-operator := greatergreater
 fold-operator := +=
 fold-operator := -=
 fold-operator := *=
@@ -202,7 +210,7 @@ additive-expression := additive-expression - multiplicative-expression
 # expr.shift
 shift-expression := additive-expression
 shift-expression := shift-expression << additive-expression
-shift-expression := shift-expression >> additive-expression
+shift-expression := shift-expression greatergreater additive-expression
 # expr.spaceship
 compare-expression := shift-expression
 compare-expression := compare-expression <=> shift-expression
@@ -401,7 +409,7 @@ noptr-declarator := declarator-id
 noptr-declarator := noptr-declarator parameters-and-qualifiers
 noptr-declarator := noptr-declarator [ constant-expression_opt ]
 noptr-declarator := ( ptr-declarator )
-parameters-and-qualifiers := ( parameter-declaration-list_opt ) cv-qualifier-seq_opt ref-qualifier_opt noexcept-specifier_opt
+parameters-and-qualifiers := ( parameter-declaration-clause_opt ) cv-qualifier-seq_opt ref-qualifier_opt noexcept-specifier_opt
 trailing-return-type := -> type-id
 ptr-operator := * cv-qualifier-seq_opt
 ptr-operator := &
@@ -421,7 +429,7 @@ abstract-declarator := abstract-pack-declarator
 ptr-abstract-declarator := noptr-abstract-declarator
 ptr-abstract-declarator := ptr-operator ptr-abstract-declarator_opt
 noptr-abstract-declarator := noptr-abstract-declarator_opt parameters-and-qualifiers
-noptr-abstract-declarator := noptr-abstract-declarator_opt [ constant-expression ]
+noptr-abstract-declarator := noptr-abstract-declarator_opt [ constant-expression_opt ]
 noptr-abstract-declarator := ( ptr-abstract-declarator )
 abstract-pack-declarator := noptr-abstract-pack-declarator
 abstract-pack-declarator := ptr-operator abstract-pack-declarator
@@ -504,7 +512,7 @@ linkage-specification := EXTERN string-literal { declaration-seq_opt }
 linkage-specification := EXTERN string-literal declaration
 
 # gram.module
-module-declaration := export-keyword_opt module-keyword module-name module-partition_opt
+module-declaration := export-keyword_opt module-keyword module-name module-partition_opt ;
 module-name := module-name-qualifier_opt IDENTIFIER
 module-partition := : module-name-qualifier_opt IDENTIFIER
 module-name-qualifier := IDENTIFIER .
@@ -529,7 +537,7 @@ class-key := CLASS
 class-key := STRUCT
 class-key := UNION
 member-specification := member-declaration member-specification_opt
-member-specification := access-specifier : member-declaration member-specification_opt
+member-specification := access-specifier : member-specification_opt
 member-declaration := decl-specifier-seq_opt member-declarator-list_opt ;
 member-declaration := function-definition
 member-declaration := using-declaration
@@ -615,7 +623,7 @@ operator-name := <=>
 operator-name := ^^
 operator-name := ||
 operator-name := <<
-operator-name := >>
+operator-name := greatergreater
 operator-name := <<=
 operator-name := >>=
 operator-name := ++
@@ -637,7 +645,7 @@ constraint-logical-and-expression := primary-expression
 constraint-logical-and-expression := constraint-logical-and-expression && primary-expression
 template-parameter := type-parameter
 template-parameter := parameter-declaration
-type-parameter := type-parameter-key ..._opt IDENTIFIER
+type-parameter := type-parameter-key ..._opt IDENTIFIER_opt
 type-parameter := type-parameter-key IDENTIFIER_opt = type-id
 type-parameter := type-constraint ..._opt IDENTIFIER_opt
 type-parameter := type-constraint IDENTIFIER_opt = type-id
@@ -737,3 +745,13 @@ contextual-zero := NUMERIC_CONSTANT
 module-keyword := IDENTIFIER
 import-keyword := IDENTIFIER
 export-keyword := IDENTIFIER
+
+#! greatergreater token -- clang lexer always lexes it as a single token, we
+#! split it into two tokens to make the GLR parser aware of the nested-template
+#! case.
+greatergreater := > >
+
+#! C++ predefined identifier, __func__ [dcl.fct.def.general] p8
+#! FIXME: add other (MSVC, GNU extension) predefined identifiers.
+primary-expression := predefined-expression
+predefined-expression := __FUNC__

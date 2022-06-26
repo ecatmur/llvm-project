@@ -32,6 +32,7 @@
 #include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/FixedPointBuilder.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
@@ -40,6 +41,7 @@
 #include "llvm/IR/IntrinsicsPowerPC.h"
 #include "llvm/IR/MatrixBuilder.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/TypeSize.h"
 #include <cstdarg>
 
 using namespace clang;
@@ -166,7 +168,7 @@ static llvm::Optional<QualType> getUnwidenedIntegerType(const ASTContext &Ctx,
 
 /// Check if \p E is a widened promoted integer.
 static bool IsWidenedIntegerOp(const ASTContext &Ctx, const Expr *E) {
-  return getUnwidenedIntegerType(Ctx, E).hasValue();
+  return getUnwidenedIntegerType(Ctx, E).has_value();
 }
 
 /// Check if we can skip the overflow check for \p Op.
@@ -1388,8 +1390,8 @@ Value *ScalarExprEmitter::EmitScalarConversion(Value *Src, QualType SrcType,
 
   if (isa<llvm::VectorType>(SrcTy) || isa<llvm::VectorType>(DstTy)) {
     // Allow bitcast from vector to integer/fp of the same size.
-    unsigned SrcSize = SrcTy->getPrimitiveSizeInBits();
-    unsigned DstSize = DstTy->getPrimitiveSizeInBits();
+    llvm::TypeSize SrcSize = SrcTy->getPrimitiveSizeInBits();
+    llvm::TypeSize DstSize = DstTy->getPrimitiveSizeInBits();
     if (SrcSize == DstSize)
       return Builder.CreateBitCast(Src, DstTy, "conv");
 
@@ -1601,7 +1603,7 @@ ScalarExprEmitter::VisitSYCLUniqueStableNameExpr(SYCLUniqueStableNameExpr *E) {
       Context.getTargetInfo().getConstantAddressSpace();
   llvm::Constant *GlobalConstStr = Builder.CreateGlobalStringPtr(
       E->ComputeName(Context), "__usn_str",
-      static_cast<unsigned>(GlobalAS.getValueOr(LangAS::Default)));
+      static_cast<unsigned>(GlobalAS.value_or(LangAS::Default)));
 
   unsigned ExprAS = Context.getTargetAddressSpace(E->getType());
 
@@ -1765,7 +1767,8 @@ Value *ScalarExprEmitter::VisitArraySubscriptExpr(ArraySubscriptExpr *E) {
   // loads the lvalue formed by the subscript expr.  However, we have to be
   // careful, because the base of a vector subscript is occasionally an rvalue,
   // so we can't get it as an lvalue.
-  if (!E->getBase()->getType()->isVectorType())
+  if (!E->getBase()->getType()->isVectorType() &&
+      !E->getBase()->getType()->isVLSTBuiltinType())
     return EmitLoadOfLValue(E);
 
   // Handle the vector case.  The base must be a vector, the index must be an
@@ -2330,9 +2333,10 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   }
   case CK_VectorSplat: {
     llvm::Type *DstTy = ConvertType(DestTy);
-    Value *Elt = Visit(const_cast<Expr*>(E));
+    Value *Elt = Visit(const_cast<Expr *>(E));
     // Splat the element across to all elements
-    unsigned NumElements = cast<llvm::FixedVectorType>(DstTy)->getNumElements();
+    llvm::ElementCount NumElements =
+        cast<llvm::VectorType>(DstTy)->getElementCount();
     return Builder.CreateVectorSplat(NumElements, Elt, "splat");
   }
 
@@ -4638,7 +4642,8 @@ VisitAbstractConditionalOperator(const AbstractConditionalOperator *E) {
     return tmp5;
   }
 
-  if (condExpr->getType()->isVectorType()) {
+  if (condExpr->getType()->isVectorType() ||
+      condExpr->getType()->isVLSTBuiltinType()) {
     CGF.incrementProfileCounter(E);
 
     llvm::Value *CondV = CGF.EmitScalarExpr(condExpr);

@@ -149,7 +149,15 @@ public:
 
     MipsSubArch_r6,
 
-    PPCSubArch_spe
+    PPCSubArch_spe,
+
+    // SPIR-V sub-arch corresponds to its version.
+    SPIRVSubArch_v10,
+    SPIRVSubArch_v11,
+    SPIRVSubArch_v12,
+    SPIRVSubArch_v13,
+    SPIRVSubArch_v14,
+    SPIRVSubArch_v15,
   };
   enum VendorType {
     UnknownVendor,
@@ -198,6 +206,7 @@ public:
     NVCL,       // NVIDIA OpenCL
     AMDHSA,     // AMD HSA Runtime
     PS4,
+    PS5,
     ELFIAMCU,
     TvOS,       // Apple tvOS
     WatchOS,    // Apple watchOS
@@ -246,6 +255,12 @@ public:
     Domain,
     Compute,
     Library,
+    RayGeneration,
+    Intersection,
+    AnyHit,
+    ClosestHit,
+    Miss,
+    Callable,
     Mesh,
     Amplification,
 
@@ -255,9 +270,11 @@ public:
     UnknownObjectFormat,
 
     COFF,
+    DXContainer,
     ELF,
     GOFF,
     MachO,
+    SPIRV,
     Wasm,
     XCOFF,
   };
@@ -670,6 +687,16 @@ public:
            getOS() == Triple::PS4;
   }
 
+  /// Tests whether the target is the PS5 platform.
+  bool isPS5() const {
+    return getArch() == Triple::x86_64 &&
+      getVendor() == Triple::SCEI &&
+      getOS() == Triple::PS5;
+  }
+
+  /// Tests whether the target is the PS4 or PS5 platform.
+  bool isPS() const { return isPS4() || isPS5(); }
+
   /// Tests whether the target is Android
   bool isAndroid() const { return getEnvironment() == Triple::Android; }
 
@@ -901,7 +928,7 @@ public:
   }
 
   /// Tests if the environment supports dllimport/export annotations.
-  bool hasDLLImportExport() const { return isOSWindows() || isPS4(); }
+  bool hasDLLImportExport() const { return isOSWindows() || isPS(); }
 
   /// @}
   /// @name Mutators
@@ -1009,7 +1036,7 @@ public:
 
   /// Get the "prefix" canonical name for the \p Kind architecture. This is the
   /// prefix used by the architecture specific builtins, and is suitable for
-  /// passing to \see Intrinsic::getIntrinsicForGCCBuiltin().
+  /// passing to \see Intrinsic::getIntrinsicForClangBuiltin().
   ///
   /// \return - The architecture prefix, or 0 if none is defined.
   static StringRef getArchTypePrefix(ArchType Kind);

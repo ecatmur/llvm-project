@@ -130,7 +130,7 @@ bool DiagnosticsEngine::popMappings(SourceLocation Loc) {
   return true;
 }
 
-void DiagnosticsEngine::Reset() {
+void DiagnosticsEngine::Reset(bool soft /*=false*/) {
   ErrorOccurred = false;
   UncompilableErrorOccurred = false;
   FatalErrorOccurred = false;
@@ -145,15 +145,17 @@ void DiagnosticsEngine::Reset() {
   LastDiagLevel = DiagnosticIDs::Ignored;
   DelayedDiagID = 0;
 
-  // Clear state related to #pragma diagnostic.
-  DiagStates.clear();
-  DiagStatesByLoc.clear();
-  DiagStateOnPushStack.clear();
+  if (!soft) {
+    // Clear state related to #pragma diagnostic.
+    DiagStates.clear();
+    DiagStatesByLoc.clear();
+    DiagStateOnPushStack.clear();
 
-  // Create a DiagState and DiagStatePoint representing diagnostic changes
-  // through command-line.
-  DiagStates.emplace_back();
-  DiagStatesByLoc.appendFirst(&DiagStates.back());
+    // Create a DiagState and DiagStatePoint representing diagnostic changes
+    // through command-line.
+    DiagStates.emplace_back();
+    DiagStatesByLoc.appendFirst(&DiagStates.back());
+  }
 }
 
 void DiagnosticsEngine::SetDelayedDiagnostic(unsigned DiagID, StringRef Arg1,
@@ -983,13 +985,13 @@ FormatDiagnostic(const char *DiagStr, const char *DiagEnd,
       if (const char *S = tok::getPunctuatorSpelling(Kind))
         // Quoted token spelling for punctuators.
         Out << '\'' << S << '\'';
-      else if (const char *S = tok::getKeywordSpelling(Kind))
+      else if ((S = tok::getKeywordSpelling(Kind)))
         // Unquoted token spelling for keywords.
         Out << S;
-      else if (const char *S = getTokenDescForDiagnostic(Kind))
+      else if ((S = getTokenDescForDiagnostic(Kind)))
         // Unquoted translatable token name.
         Out << S;
-      else if (const char *S = tok::getTokenName(Kind))
+      else if ((S = tok::getTokenName(Kind)))
         // Debug name, shouldn't appear in user-facing diagnostics.
         Out << '<' << S << '>';
       else
@@ -1136,6 +1138,14 @@ StoredDiagnostic::StoredDiagnostic(DiagnosticsEngine::Level Level, unsigned ID,
     : ID(ID), Level(Level), Loc(Loc), Message(Message),
       Ranges(Ranges.begin(), Ranges.end()), FixIts(FixIts.begin(), FixIts.end())
 {
+}
+
+llvm::raw_ostream &clang::operator<<(llvm::raw_ostream &OS,
+                                     const StoredDiagnostic &SD) {
+  if (SD.getLocation().hasManager())
+    OS << SD.getLocation().printToString(SD.getLocation().getManager()) << ": ";
+  OS << SD.getMessage();
+  return OS;
 }
 
 /// IncludeInDiagnosticCounts - This method (whose default implementation

@@ -153,6 +153,7 @@ def fir_ComplexType : FIR_Type<"Complex", "complex"> {
     using KindTy = unsigned;
 
     mlir::Type getElementType() const;
+    mlir::Type getEleType(const fir::KindMapping &kindMap) const;
   }];
 }
 
@@ -567,6 +568,11 @@ def AnyReferenceLike : TypeConstraint<Or<[fir_ReferenceType.predicate,
     fir_HeapType.predicate, fir_PointerType.predicate,
     fir_LLVMPointerType.predicate]>, "any reference">;
 
+def FuncType : TypeConstraint<FunctionType.predicate, "function type">;
+
+def AnyCodeOrDataRefLike : TypeConstraint<Or<[AnyReferenceLike.predicate,
+    FunctionType.predicate]>, "any code or data reference">;
+
 def RefOrLLVMPtr : TypeConstraint<Or<[fir_ReferenceType.predicate,
     fir_LLVMPointerType.predicate]>, "fir.ref or fir.llvm_ptr">;
 
@@ -574,7 +580,7 @@ def AnyBoxLike : TypeConstraint<Or<[fir_BoxType.predicate,
     fir_BoxCharType.predicate, fir_BoxProcType.predicate]>, "any box">;
 
 def AnyRefOrBoxLike : TypeConstraint<Or<[AnyReferenceLike.predicate,
-    AnyBoxLike.predicate]>,
+    AnyBoxLike.predicate, FunctionType.predicate]>,
     "any reference or box like">;
 def AnyRefOrBox : TypeConstraint<Or<[fir_ReferenceType.predicate,
     fir_HeapType.predicate, fir_PointerType.predicate, fir_BoxType.predicate]>,
