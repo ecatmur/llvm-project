@@ -398,6 +398,7 @@ struct MIMGInfo {
   uint8_t MIMGEncoding;
   uint8_t VDataDwords;
   uint8_t VAddrDwords;
+  uint8_t VAddrOperands;
 };
 
 LLVM_READONLY
@@ -453,6 +454,9 @@ bool getVOP2IsSingle(unsigned Opc);
 
 LLVM_READONLY
 bool getVOP3IsSingle(unsigned Opc);
+
+LLVM_READONLY
+bool isVOPC64DPP(unsigned Opc);
 
 /// Returns true if MAI operation is a double precision GEMM.
 LLVM_READONLY
@@ -819,6 +823,7 @@ bool isGFX90A(const MCSubtargetInfo &STI);
 bool isGFX940(const MCSubtargetInfo &STI);
 bool hasArchitectedFlatScratch(const MCSubtargetInfo &STI);
 bool hasMAIInsts(const MCSubtargetInfo &STI);
+bool hasVOPD(const MCSubtargetInfo &STI);
 int getTotalNumVGPRs(bool has90AInsts, int32_t ArgNumAGPR, int32_t ArgNumVGPR);
 
 /// Is Reg - scalar register

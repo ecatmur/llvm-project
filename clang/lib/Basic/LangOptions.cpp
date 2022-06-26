@@ -117,6 +117,8 @@ void LangOptions::setLangDefaults(LangOptions &Opts, Language Lang,
   Opts.Digraphs = Std.hasDigraphs();
 
   Opts.HLSL = Lang == Language::HLSL;
+  if (Opts.HLSL && Opts.IncludeDefaultHeader)
+    Includes.push_back("hlsl.h");
 
   // Set OpenCL Version.
   Opts.OpenCL = Std.isOpenCL();
@@ -193,8 +195,8 @@ void LangOptions::setLangDefaults(LangOptions &Opts, Language Lang,
   // OpenCL, C++ and C2x have bool, true, false keywords.
   Opts.Bool = Opts.OpenCL || Opts.CPlusPlus || Opts.C2x;
 
-  // OpenCL has half keyword
-  Opts.Half = Opts.OpenCL;
+  // OpenCL and HLSL have half keyword
+  Opts.Half = Opts.OpenCL || Opts.HLSL;
 }
 
 FPOptions FPOptions::defaultWithoutTrailingStorage(const LangOptions &LO) {

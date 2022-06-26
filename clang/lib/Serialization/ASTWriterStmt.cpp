@@ -2298,6 +2298,13 @@ void ASTStmtWriter::VisitOMPParallelMasterDirective(
   Code = serialization::STMT_OMP_PARALLEL_MASTER_DIRECTIVE;
 }
 
+void ASTStmtWriter::VisitOMPParallelMaskedDirective(
+    OMPParallelMaskedDirective *D) {
+  VisitStmt(D);
+  VisitOMPExecutableDirective(D);
+  Code = serialization::STMT_OMP_PARALLEL_MASKED_DIRECTIVE;
+}
+
 void ASTStmtWriter::VisitOMPParallelSectionsDirective(
     OMPParallelSectionsDirective *D) {
   VisitStmt(D);
@@ -2318,6 +2325,7 @@ void ASTStmtWriter::VisitOMPAtomicDirective(OMPAtomicDirective *D) {
   VisitOMPExecutableDirective(D);
   Record.writeBool(D->isXLHSInRHSPart());
   Record.writeBool(D->isPostfixUpdate());
+  Record.writeBool(D->isFailOnly());
   Code = serialization::STMT_OMP_ATOMIC_DIRECTIVE;
 }
 
@@ -2448,6 +2456,13 @@ void ASTStmtWriter::VisitOMPMasterTaskLoopDirective(
   VisitOMPLoopDirective(D);
   Record.writeBool(D->hasCancel());
   Code = serialization::STMT_OMP_MASTER_TASKLOOP_DIRECTIVE;
+}
+
+void ASTStmtWriter::VisitOMPMaskedTaskLoopDirective(
+    OMPMaskedTaskLoopDirective *D) {
+  VisitOMPLoopDirective(D);
+  Record.writeBool(D->hasCancel());
+  Code = serialization::STMT_OMP_MASKED_TASKLOOP_DIRECTIVE;
 }
 
 void ASTStmtWriter::VisitOMPMasterTaskLoopSimdDirective(

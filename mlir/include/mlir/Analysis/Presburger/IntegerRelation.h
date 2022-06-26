@@ -26,6 +26,7 @@ namespace presburger {
 
 class IntegerRelation;
 class IntegerPolyhedron;
+class PresburgerSet;
 
 /// An IntegerRelation represents the set of points from a PresburgerSpace that
 /// satisfy a list of affine constraints. Affine constraints can be inequalities
@@ -92,6 +93,17 @@ public:
 
   /// Returns a reference to the underlying space.
   const PresburgerSpace &getSpace() const { return space; }
+
+  /// Set the space to `oSpace`, which should have the same number of ids as
+  /// the current space.
+  void setSpace(const PresburgerSpace &oSpace);
+
+  /// Set the space to `oSpace`, which should not have any local ids.
+  /// `oSpace` can have fewer ids than the current space; in that case, the
+  /// the extra ids in `this` that are not accounted for by `oSpace` will be
+  /// considered as local ids. `oSpace` should not have more ids than the
+  /// current space; this will result in an assert failure.
+  void setSpaceExceptLocals(const PresburgerSpace &oSpace);
 
   /// Returns a copy of the space without locals.
   PresburgerSpace getSpaceWithoutLocals() const {
@@ -459,10 +471,16 @@ public:
   void removeDuplicateDivs();
 
   /// Converts identifiers of kind srcKind in the range [idStart, idLimit) to
-  /// variables of kind dstKind and placed after all the other variables of kind
-  /// dstKind. The internal ordering among the moved variables is preserved.
+  /// variables of kind dstKind. If `pos` is given, the variables are placed at
+  /// position `pos` of dstKind, otherwise they are placed after all the other
+  /// variables of kind dstKind. The internal ordering among the moved variables
+  /// is preserved.
   void convertIdKind(IdKind srcKind, unsigned idStart, unsigned idLimit,
-                     IdKind dstKind);
+                     IdKind dstKind, unsigned pos);
+  void convertIdKind(IdKind srcKind, unsigned idStart, unsigned idLimit,
+                     IdKind dstKind) {
+    convertIdKind(srcKind, idStart, idLimit, dstKind, getNumIdKind(dstKind));
+  }
   void convertToLocal(IdKind kind, unsigned idStart, unsigned idLimit) {
     convertIdKind(kind, idStart, idLimit, IdKind::Local);
   }
@@ -490,6 +508,9 @@ public:
   /// Returns the number of non-merged local ids of `other`, i.e. the number of
   /// locals that have been added to `this`.
   unsigned mergeLocalIds(IntegerRelation &other);
+
+  /// Check whether all local ids have a division representation.
+  bool hasOnlyDivLocals() const;
 
   /// Changes the partition between dimensions and symbols. Depending on the new
   /// symbol count, either a chunk of dimensional identifiers immediately before
@@ -522,6 +543,32 @@ public:
   /// Formally, let the relation `this` be R: A -> B, then this operation
   /// modifies R to be B -> A.
   void inverse();
+
+  /// Let the relation `this` be R1, and the relation `rel` be R2. Modifies R1
+  /// to be the composition of R1 and R2: R1;R2.
+  ///
+  /// Formally, if R1: A -> B, and R2: B -> C, then this function returns a
+  /// relation R3: A -> C such that a point (a, c) belongs to R3 iff there
+  /// exists b such that (a, b) is in R1 and, (b, c) is in R2.
+  void compose(const IntegerRelation &rel);
+
+  /// Given a relation `rel`, apply the relation to the domain of this relation.
+  ///
+  /// R1: i -> j : (0 <= i < 2, j = i)
+  /// R2: i -> k : (k = i floordiv 2)
+  /// R3: k -> j : (0 <= k < 1, 2k <=  j <= 2k + 1)
+  ///
+  /// R1 = {(0, 0), (1, 1)}. R2 maps both 0 and 1 to 0.
+  /// So R3 = {(0, 0), (0, 1)}.
+  ///
+  /// Formally, R1.applyDomain(R2) = R2.inverse().compose(R1).
+  void applyDomain(const IntegerRelation &rel);
+
+  /// Given a relation `rel`, apply the relation to the range of this relation.
+  ///
+  /// Formally, R1.applyRange(R2) is the same as R1.compose(R2) but we provide
+  /// this for uniformity with `applyDomain`.
+  void applyRange(const IntegerRelation &rel);
 
   void print(raw_ostream &os) const;
   void dump() const;
@@ -706,6 +753,12 @@ public:
   /// column position (i.e., not relative to the kind of identifier) of the
   /// first added identifier.
   unsigned insertId(IdKind kind, unsigned pos, unsigned num = 1) override;
+
+  /// Compute an equivalent representation of the same set, such that all local
+  /// ids have division representations. This representation may involve
+  /// local ids that correspond to divisions, and may also be a union of convex
+  /// disjuncts.
+  PresburgerSet computeReprWithOnlyDivLocals() const;
 
   /// Compute the symbolic integer lexmin of the polyhedron.
   /// This finds, for every assignment to the symbols, the lexicographically

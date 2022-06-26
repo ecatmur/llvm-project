@@ -2371,6 +2371,12 @@ void ASTStmtReader::VisitOMPParallelMasterDirective(
   VisitOMPExecutableDirective(D);
 }
 
+void ASTStmtReader::VisitOMPParallelMaskedDirective(
+    OMPParallelMaskedDirective *D) {
+  VisitStmt(D);
+  VisitOMPExecutableDirective(D);
+}
+
 void ASTStmtReader::VisitOMPParallelSectionsDirective(
     OMPParallelSectionsDirective *D) {
   VisitStmt(D);
@@ -2431,6 +2437,7 @@ void ASTStmtReader::VisitOMPAtomicDirective(OMPAtomicDirective *D) {
   VisitOMPExecutableDirective(D);
   D->Flags.IsXLHSInRHSPart = Record.readBool() ? 1 : 0;
   D->Flags.IsPostfixUpdate = Record.readBool() ? 1 : 0;
+  D->Flags.IsFailOnly = Record.readBool() ? 1 : 0;
 }
 
 void ASTStmtReader::VisitOMPTargetDirective(OMPTargetDirective *D) {
@@ -2497,6 +2504,12 @@ void ASTStmtReader::VisitOMPTaskLoopSimdDirective(OMPTaskLoopSimdDirective *D) {
 
 void ASTStmtReader::VisitOMPMasterTaskLoopDirective(
     OMPMasterTaskLoopDirective *D) {
+  VisitOMPLoopDirective(D);
+  D->setHasCancel(Record.readBool());
+}
+
+void ASTStmtReader::VisitOMPMaskedTaskLoopDirective(
+    OMPMaskedTaskLoopDirective *D) {
   VisitOMPLoopDirective(D);
   D->setHasCancel(Record.readBool());
 }
@@ -3296,6 +3309,11 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
           Context, Record[ASTStmtReader::NumStmtFields], Empty);
       break;
 
+    case STMT_OMP_PARALLEL_MASKED_DIRECTIVE:
+      S = OMPParallelMaskedDirective::CreateEmpty(
+          Context, Record[ASTStmtReader::NumStmtFields], Empty);
+      break;
+
     case STMT_OMP_PARALLEL_SECTIONS_DIRECTIVE:
       S = OMPParallelSectionsDirective::CreateEmpty(
           Context, Record[ASTStmtReader::NumStmtFields], Empty);
@@ -3424,6 +3442,14 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       unsigned CollapsedNum = Record[ASTStmtReader::NumStmtFields];
       unsigned NumClauses = Record[ASTStmtReader::NumStmtFields + 1];
       S = OMPMasterTaskLoopDirective::CreateEmpty(Context, NumClauses,
+                                                  CollapsedNum, Empty);
+      break;
+    }
+    
+    case STMT_OMP_MASKED_TASKLOOP_DIRECTIVE: {
+      unsigned CollapsedNum = Record[ASTStmtReader::NumStmtFields];
+      unsigned NumClauses = Record[ASTStmtReader::NumStmtFields + 1];
+      S = OMPMaskedTaskLoopDirective::CreateEmpty(Context, NumClauses,
                                                   CollapsedNum, Empty);
       break;
     }

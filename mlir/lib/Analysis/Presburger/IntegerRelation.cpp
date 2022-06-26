@@ -38,6 +38,19 @@ std::unique_ptr<IntegerPolyhedron> IntegerPolyhedron::clone() const {
   return std::make_unique<IntegerPolyhedron>(*this);
 }
 
+void IntegerRelation::setSpace(const PresburgerSpace &oSpace) {
+  assert(space.getNumIds() == oSpace.getNumIds() && "invalid space!");
+  space = oSpace;
+}
+
+void IntegerRelation::setSpaceExceptLocals(const PresburgerSpace &oSpace) {
+  assert(oSpace.getNumLocalIds() == 0 && "no locals should be present!");
+  assert(oSpace.getNumIds() <= getNumIds() && "invalid space!");
+  unsigned newNumLocals = getNumIds() - oSpace.getNumIds();
+  space = oSpace;
+  space.insertId(IdKind::Local, 0, newNumLocals);
+}
+
 void IntegerRelation::append(const IntegerRelation &other) {
   assert(space.isEqual(other.getSpace()) && "Spaces must be equal.");
 
@@ -150,6 +163,67 @@ void IntegerRelation::truncate(const CountsSnapshot &counts) {
   truncateIdKind(IdKind::Local, counts);
   removeInequalityRange(counts.getNumIneqs(), getNumInequalities());
   removeEqualityRange(counts.getNumEqs(), getNumEqualities());
+}
+
+PresburgerSet IntegerPolyhedron::computeReprWithOnlyDivLocals() const {
+  // If there are no locals, we're done.
+  if (getNumLocalIds() == 0)
+    return PresburgerSet(*this);
+
+  // Move all the non-div locals to the end, as the current API to
+  // SymbolicLexMin requires these to form a contiguous range.
+  //
+  // Take a copy so we can perform mutations.
+  IntegerPolyhedron copy = *this;
+  std::vector<MaybeLocalRepr> reprs;
+  copy.getLocalReprs(reprs);
+
+  // Iterate through all the locals. The last `numNonDivLocals` are the locals
+  // that have been scanned already and do not have division representations.
+  unsigned numNonDivLocals = 0;
+  unsigned offset = copy.getIdKindOffset(IdKind::Local);
+  for (unsigned i = 0, e = copy.getNumLocalIds(); i < e - numNonDivLocals;) {
+    if (!reprs[i]) {
+      // Whenever we come across a local that does not have a division
+      // representation, we swap it to the `numNonDivLocals`-th last position
+      // and increment `numNonDivLocal`s. `reprs` also needs to be swapped.
+      copy.swapId(offset + i, offset + e - numNonDivLocals - 1);
+      std::swap(reprs[i], reprs[e - numNonDivLocals - 1]);
+      ++numNonDivLocals;
+      continue;
+    }
+    ++i;
+  }
+
+  // If there are no non-div locals, we're done.
+  if (numNonDivLocals == 0)
+    return PresburgerSet(*this);
+
+  // We computeSymbolicIntegerLexMin by considering the non-div locals as
+  // "non-symbols" and considering everything else as "symbols". This will
+  // compute a function mapping assignments to "symbols" to the
+  // lexicographically minimal valid assignment of "non-symbols", when a
+  // satisfying assignment exists. It separately returns the set of assignments
+  // to the "symbols" such that a satisfying assignment to the "non-symbols"
+  // exists but the lexmin is unbounded. We basically want to find the set of
+  // values of the "symbols" such that an assignment to the "non-symbols"
+  // exists, which is the union of the domain of the returned lexmin function
+  // and the returned set of assignments to the "symbols" that makes the lexmin
+  // unbounded.
+  SymbolicLexMin lexminResult =
+      SymbolicLexSimplex(copy, /*symbolOffset*/ 0,
+                         IntegerPolyhedron(PresburgerSpace::getSetSpace(
+                             /*numDims=*/copy.getNumIds() - numNonDivLocals)))
+          .computeSymbolicIntegerLexMin();
+  PresburgerSet result =
+      lexminResult.lexmin.getDomain().unionSet(lexminResult.unboundedDomain);
+
+  // The result set might lie in the wrong space -- all its ids are dims.
+  // Set it to the desired space and return.
+  PresburgerSpace space = getSpace();
+  space.removeIdRange(IdKind::Local, 0, getNumLocalIds());
+  result.setSpace(space);
+  return result;
 }
 
 SymbolicLexMin IntegerPolyhedron::findSymbolicIntegerLexMin() const {
@@ -626,9 +700,7 @@ Matrix IntegerRelation::getBoundedDirections() const {
   return dirs;
 }
 
-bool IntegerRelation::isIntegerEmpty() const {
-  return !findIntegerSample().hasValue();
-}
+bool IntegerRelation::isIntegerEmpty() const { return !findIntegerSample(); }
 
 /// Let this set be S. If S is bounded then we directly call into the GBR
 /// sampling algorithm. Otherwise, there are some unbounded directions, i.e.,
@@ -773,7 +845,7 @@ Optional<SmallVector<int64_t, 8>> IntegerRelation::findIntegerSample() const {
   SmallVector<int64_t, 8> coneSample(llvm::map_range(shrunkenConeSample, ceil));
 
   // 6) Return transform * concat(boundedSample, coneSample).
-  SmallVector<int64_t, 8> &sample = boundedSample.getValue();
+  SmallVector<int64_t, 8> &sample = *boundedSample;
   sample.append(coneSample.begin(), coneSample.end());
   return transform.postMultiplyWithColumn(sample);
 }
@@ -1122,6 +1194,13 @@ unsigned IntegerRelation::mergeLocalIds(IntegerRelation &other) {
   return relA.getNumLocalIds() - oldALocals;
 }
 
+bool IntegerRelation::hasOnlyDivLocals() const {
+  std::vector<MaybeLocalRepr> reprs;
+  getLocalReprs(reprs);
+  return llvm::all_of(reprs,
+                      [](const MaybeLocalRepr &repr) { return bool(repr); });
+}
+
 void IntegerRelation::removeDuplicateDivs() {
   std::vector<SmallVector<int64_t, 8>> divs;
   SmallVector<unsigned, 4> denoms;
@@ -1184,16 +1263,16 @@ void IntegerRelation::removeRedundantLocalVars() {
 }
 
 void IntegerRelation::convertIdKind(IdKind srcKind, unsigned idStart,
-                                    unsigned idLimit, IdKind dstKind) {
+                                    unsigned idLimit, IdKind dstKind,
+                                    unsigned pos) {
   assert(idLimit <= getNumIdKind(srcKind) && "Invalid id range");
 
   if (idStart >= idLimit)
     return;
 
   // Append new local variables corresponding to the dimensions to be converted.
-  unsigned newIdsBegin = getIdKindEnd(dstKind);
   unsigned convertCount = idLimit - idStart;
-  appendId(dstKind, convertCount);
+  unsigned newIdsBegin = insertId(dstKind, pos, convertCount);
 
   // Swap the new local variables with dimensions.
   //
@@ -1423,7 +1502,7 @@ Optional<int64_t> IntegerRelation::getConstantBoundOnDimSize(
       }
     }
   }
-  if (lb && minDiff.hasValue()) {
+  if (lb && minDiff) {
     // Set lb to the symbolic lower bound.
     lb->resize(getNumSymbolIds() + 1);
     if (ub)
@@ -2136,6 +2215,40 @@ void IntegerRelation::inverse() {
   convertIdKind(IdKind::Domain, 0, getIdKindEnd(IdKind::Domain), IdKind::Range);
   convertIdKind(IdKind::Range, 0, numRangeIds, IdKind::Domain);
 }
+
+void IntegerRelation::compose(const IntegerRelation &rel) {
+  assert(getRangeSet().getSpace().isCompatible(rel.getDomainSet().getSpace()) &&
+         "Range of `this` should be compatible with Domain of `rel`");
+
+  IntegerRelation copyRel = rel;
+
+  // Let relation `this` be R1: A -> B, and `rel` be R2: B -> C.
+  // We convert R1 to A -> (B X C), and R2 to B X C then intersect the range of
+  // R1 with R2. After this, we get R1: A -> C, by projecting out B.
+  // TODO: Using nested spaces here would help, since we could directly
+  // intersect the range with another relation.
+  unsigned numBIds = getNumRangeIds();
+
+  // Convert R1 from A -> B to A -> (B X C).
+  appendId(IdKind::Range, copyRel.getNumRangeIds());
+
+  // Convert R2 to B X C.
+  copyRel.convertIdKind(IdKind::Domain, 0, numBIds, IdKind::Range, 0);
+
+  // Intersect R2 to range of R1.
+  intersectRange(IntegerPolyhedron(copyRel));
+
+  // Project out B in R1.
+  convertIdKind(IdKind::Range, 0, numBIds, IdKind::Local);
+}
+
+void IntegerRelation::applyDomain(const IntegerRelation &rel) {
+  inverse();
+  compose(rel);
+  inverse();
+}
+
+void IntegerRelation::applyRange(const IntegerRelation &rel) { compose(rel); }
 
 void IntegerRelation::printSpace(raw_ostream &os) const {
   space.print(os);
