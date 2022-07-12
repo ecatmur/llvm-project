@@ -4044,73 +4044,6 @@ ResolveConstructorOverload(Sema &S, SourceLocation DeclLoc,
   return CandidateSet.BestViableFunction(S, DeclLoc, Best);
 }
 
-static void TryValueInitialization(Sema &S,
-                                   const InitializedEntity &Entity,
-                                   const InitializationKind &Kind,
-                                   InitializationSequence &Sequence,
-                                   InitListExpr *InitList = nullptr);
-
-static void TryAggregateParenthesizedInitialization(Sema& S,
-                                                    const InitializedEntity &Entity,
-                                                    MultiExprArg Args,
-                                                    QualType DestType,
-                                                    InitializationSequence &Sequence) {
-  RecordDecl *RD = DestType->castAs<RecordType>()->getDecl();
-  auto Bases =
-      CXXRecordDecl::base_class_range(CXXRecordDecl::base_class_iterator(),
-                                      CXXRecordDecl::base_class_iterator());
-  if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
-    Bases = CXXRD->bases();
-
-  bool hadError = false;
-  unsigned Index = 0;
-  for (auto& Base : Bases) {
-    Expr *Init = Index < Args.size() ? Args[Index++] : nullptr;
-    InitializedEntity BaseEntity = InitializedEntity::InitializeBase(
-        S.Context, &Base, false, &Entity);
-    if (Init) {
-      if (!S.CanPerformCopyInitialization(BaseEntity, Init))
-        hadError = true;
-    } else {
-      SourceLocation Loc = Args.back()->getEndLoc();
-      auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
-      MultiExprArg SubInit;
-      InitializationSequence ValueSequence(S, BaseEntity, Kind, SubInit);
-      TryValueInitialization(S, BaseEntity, Kind, ValueSequence);
-      if (!ValueSequence)
-        hadError = true;
-    }
-  }
-  for (auto *Field : RD->fields()) {
-    Expr *Init = Index < Args.size() ? Args[Index++] : nullptr;
-    InitializedEntity MemberEntity =
-      InitializedEntity::InitializeMember(Field, &Entity);
-    if (Init) {
-      if (!S.CanPerformCopyInitialization(MemberEntity, Init))
-        hadError = true;
-    } else if (Field->hasInClassInitializer()) {
-      // Assume that NSDMIs were validated at declaration.
-    } else {
-      SourceLocation Loc = Args.back()->getEndLoc();
-      auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
-      MultiExprArg SubInit;
-      InitializationSequence ValueSequence(S, MemberEntity, Kind, SubInit);
-      TryValueInitialization(S, MemberEntity, Kind, ValueSequence);
-      if (!ValueSequence)
-        hadError = true;
-    }
-  }
-
-  if (hadError) {
-    Sequence.SetFailed(InitializationSequence::FK_ConstructorOverloadFailed); // FIXME
-    return;
-  } else if (Index < Args.size()) {
-    Sequence.SetFailed(InitializationSequence::FK_ConstructorOverloadFailed); // FIXME
-    return;
-  }
-  Sequence.AddAggregateParenthesizedInitStep(DestType);
-}
-
 /// Attempt initialization by constructor (C++ [dcl.init]), which
 /// enumerates the constructors of the initialized entity and performs overload
 /// resolution to select the best.
@@ -4232,7 +4165,7 @@ static void TryConstructorInitialization(Sema &S,
   // initialized as follows. [...]
   if (S.getLangOpts().CPlusPlus20 && Result == OR_No_Viable_Function &&
       DestType->isAggregateType() && Kind.getKind() == InitializationKind::IK_Direct) {
-    TryAggregateParenthesizedInitialization(S, Entity, Args, DestType, Sequence);
+    Sequence.AddAggregateParenthesizedInitStep(DestType);
     return;
   }
 
@@ -4348,6 +4281,12 @@ static void TryReferenceInitializationCore(Sema &S,
                                            QualType cv2T2, QualType T2,
                                            Qualifiers T2Quals,
                                            InitializationSequence &Sequence);
+
+static void TryValueInitialization(Sema &S,
+                                   const InitializedEntity &Entity,
+                                   const InitializationKind &Kind,
+                                   InitializationSequence &Sequence,
+                                   InitListExpr *InitList = nullptr);
 
 /// Attempt list initialization of a reference.
 static void TryReferenceListInitialization(Sema &S,
@@ -6734,6 +6673,7 @@ PerformAggregateParenthesizedInitialization(Sema& S,
   if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
     Bases = CXXRD->bases();
 
+  bool hadError = false;
   unsigned Index = 0;
   for (auto& Base : Bases) {
     Expr *Init = Index < Args.size() ? Args[Index++] : nullptr;
@@ -6742,7 +6682,10 @@ PerformAggregateParenthesizedInitialization(Sema& S,
     if (Init) {
       // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
       auto InitResult = S.PerformCopyInitialization(BaseEntity, Init->getBeginLoc(), Init);
-      Result->setInit(Index, InitResult.getAs<Expr>());
+      if (InitResult)
+        Result->setInit(Index, InitResult.getAs<Expr>());
+      else
+        hadError = true;
     } else {
       // Bases don't have NSDMIs, so value-init.
       SourceLocation Loc = Args.back()->getEndLoc();
@@ -6751,7 +6694,10 @@ PerformAggregateParenthesizedInitialization(Sema& S,
       InitializationSequence ValueSequence(S, BaseEntity, Kind, SubInit);
       TryValueInitialization(S, BaseEntity, Kind, ValueSequence);
       auto ER = ValueSequence.Perform(S, BaseEntity, Kind, SubInit);
-      Result->setInit(Index, ER.get());
+      if (ER)
+        Result->setInit(Index, ER.get());
+      else
+        hadError = true;
     }
   }
   for (auto *Field : RD->fields()) {
@@ -6761,13 +6707,19 @@ PerformAggregateParenthesizedInitialization(Sema& S,
     if (Init) {
       // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
       auto InitResult = S.PerformCopyInitialization(MemberEntity, Init->getBeginLoc(), Init);
-      Result->setInit(Index, InitResult.getAs<Expr>());
+      if (InitResult)
+        Result->setInit(Index, InitResult.getAs<Expr>());
+      else
+        hadError = true;
     } else if (Field->hasInClassInitializer()) {
       // The remaining elements are initialized with their default member initializers,
       // if any,
       SourceLocation Loc = Args.back()->getEndLoc();
       ExprResult DIE = S.BuildCXXDefaultInitExpr(Loc, Field);
-      Result->setInit(Index, DIE.get());
+      if (DIE)
+        Result->setInit(Index, DIE.get());
+      else
+        hadError = true;
     } else {
       // and otherwise are value-initialized.
       SourceLocation Loc = Args.back()->getEndLoc();
@@ -6776,11 +6728,22 @@ PerformAggregateParenthesizedInitialization(Sema& S,
       InitializationSequence ValueSequence(S, MemberEntity, Kind, SubInit);
       TryValueInitialization(S, MemberEntity, Kind, ValueSequence);
       auto ER = ValueSequence.Perform(S, MemberEntity, Kind, SubInit);
-      Result->setInit(Index, ER.get());
+      if (ER)
+        Result->setInit(Index, ER.get());
+      else
+        hadError = true;
     }
   }
-  // TODO error checking?
-  return Result;
+  if (Index < Args.size()) {
+    int initKind = 4; // struct
+    S.Diag(Args[Index].getBeginLoc(), diag::err_excess_initializers)
+        << initKind << Args[Index].getSourceRange();
+    return ExprError();
+  } else if (hadError) {
+    return ExprError();
+  } else {
+    return Result;
+  }
 }
 
 namespace {
