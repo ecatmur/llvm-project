@@ -1873,6 +1873,10 @@ Enable sanitizer for AMDGPU target
 
 Specify that single precision floating-point divide and sqrt used in the program source are correctly rounded (HIP device compilation only)
 
+.. option:: -fhip-kernel-arg-name, -fno-hip-kernel-arg-name
+
+Specify that kernel argument names are preserved (HIP only)
+
 .. option:: -fhip-new-launch-api, -fno-hip-new-launch-api
 
 Use new kernel launching API for HIP
@@ -2639,12 +2643,6 @@ Enable unstable and experimental features
 
 .. option:: -fuse-init-array, -fno-use-init-array
 
-.. option:: -fstrict-flex-arrays=<arg>, -fno-strict-flex-arrays
-
-Control which arrays are considered as flexible arrays members. <arg>
-can be 1 (array of size 0, 1 and undefined are considered), 2 (array of size 0
-and undefined are considered) or 3 (only array of undefined size are considered).
-
 .. option:: -fuse-ld=<arg>
 
 .. option:: -fuse-line-directives, -fno-use-line-directives
@@ -3287,6 +3285,10 @@ Use the given offset for addressing the stack-protector guard
 
 Use the given reg for addressing the stack-protector guard
 
+.. option:: -mstack-protector-guard-symbol=<arg>
+
+Use the given symbol for addressing the stack-protector guard
+
 .. option:: -mstack-protector-guard=<arg>
 
 Use the given guard (global, tls) for addressing the stack-protector guard
@@ -3444,6 +3446,10 @@ Work around VLLDM erratum CVE-2021-35465 (ARM only)
 .. option:: -mfix-cortex-a57-aes-1742098, -mfix-cortex-a72-aes-1655431, -mno-fix-cortex-a57-aes-1742098
 
 Work around Cortex-A57 Erratum 1742098 (ARM only)
+
+.. option:: -mframe-chain=<arg>
+
+Select the frame chain model used to emit frame records (Arm only). <arg> must be 'none', 'aapcs' or 'aapcs+leaf'.
 
 .. option:: -mno-bti-at-return-twice
 
@@ -3874,6 +3880,8 @@ X86
 .. option:: -mptwrite, -mno-ptwrite
 
 .. option:: -mrdpid, -mno-rdpid
+
+.. option:: -mrdpru, -mno-rdpru
 
 .. option:: -mrdrnd, -mno-rdrnd
 

@@ -170,7 +170,7 @@ static LinalgOp fuse(OpBuilder &b, LinalgOp producer,
   SmallVector<Value> allIvs;
   llvm::transform(loopRanges, std::back_inserter(allIvs),
                   [](Range range) { return range.offset; });
-  addTileLoopIvsToIndexOpResults(b, clonedOp, allIvs);
+  offsetIndices(b, clonedOp, allIvs);
 
   return clonedOp;
 }
@@ -387,7 +387,7 @@ static void getProducerOfTensor(Value tensor, OpResult &opResult) {
       return;
     }
     if (auto sliceOp = tensor.getDefiningOp<tensor::ExtractSliceOp>()) {
-      tensor = sliceOp.source();
+      tensor = sliceOp.getSource();
       continue;
     }
     if (auto blockArg = tensor.dyn_cast<BlockArgument>()) {
