@@ -6741,10 +6741,10 @@ PerformAggregateParenthesizedInitialization(Sema& S,
     if (Init) {
       // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
       auto InitResult = S.PerformCopyInitialization(BaseEntity, Init->getBeginLoc(), Init);
-      if (InitResult)
-        Result->setInit(Index, InitResult.getAs<Expr>());
-      else
+      if (InitResult.isInvalid())
         hadError = true;
+      else
+        Result->setInit(Index, InitResult.getAs<Expr>());
     } else {
       // Bases don't have NSDMIs, so value-init.
       SourceLocation Loc = Args.back()->getEndLoc();
@@ -6753,10 +6753,10 @@ PerformAggregateParenthesizedInitialization(Sema& S,
       InitializationSequence ValueSequence(S, BaseEntity, Kind, SubInit);
       TryValueInitialization(S, BaseEntity, Kind, ValueSequence);
       auto ER = ValueSequence.Perform(S, BaseEntity, Kind, SubInit);
-      if (ER)
-        Result->setInit(Index, ER.get());
-      else
+      if (ER.isInvalid())
         hadError = true;
+      else
+        Result->setInit(Index, ER.get());
     }
   }
   for (auto *Field : RD->fields()) {
@@ -6766,19 +6766,19 @@ PerformAggregateParenthesizedInitialization(Sema& S,
     if (Init) {
       // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
       auto InitResult = S.PerformCopyInitialization(MemberEntity, Init->getBeginLoc(), Init);
-      if (InitResult)
-        Result->setInit(Index, InitResult.getAs<Expr>());
-      else
+      if (InitResult.isInvalid())
         hadError = true;
+      else
+        Result->setInit(Index, InitResult.getAs<Expr>());
     } else if (Field->hasInClassInitializer()) {
       // The remaining elements are initialized with their default member initializers,
       // if any,
       SourceLocation Loc = Args.back()->getEndLoc();
       ExprResult DIE = S.BuildCXXDefaultInitExpr(Loc, Field);
-      if (DIE)
-        Result->setInit(Index, DIE.get());
-      else
+      if (DIE.isInvalid())
         hadError = true;
+      else
+        Result->setInit(Index, DIE.get());
     } else {
       // and otherwise are value-initialized.
       SourceLocation Loc = Args.back()->getEndLoc();
@@ -6787,16 +6787,16 @@ PerformAggregateParenthesizedInitialization(Sema& S,
       InitializationSequence ValueSequence(S, MemberEntity, Kind, SubInit);
       TryValueInitialization(S, MemberEntity, Kind, ValueSequence);
       auto ER = ValueSequence.Perform(S, MemberEntity, Kind, SubInit);
-      if (ER)
-        Result->setInit(Index, ER.get());
-      else
+      if (ER.isInvalid())
         hadError = true;
+      else
+        Result->setInit(Index, ER.get());
     }
   }
   if (Index < Args.size()) {
     int initKind = 4; // struct
-    S.Diag(Args[Index].getBeginLoc(), diag::err_excess_initializers)
-        << initKind << Args[Index].getSourceRange();
+    S.Diag(Args[Index]->getBeginLoc(), diag::err_excess_initializers)
+        << initKind << Args[Index]->getSourceRange();
     return ExprError();
   } else if (hadError) {
     return ExprError();
