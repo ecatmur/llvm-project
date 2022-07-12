@@ -6675,6 +6675,7 @@ PerformAggregateParenthesizedInitialization(Sema& S,
 
   bool hadError = false;
   unsigned Index = 0;
+  Result->resizeInits(S.Context, size(Bases));
   for (auto& Base : Bases) {
     Expr *Init = Index < Args.size() ? Args[Index++] : nullptr;
     InitializedEntity BaseEntity = InitializedEntity::InitializeBase(
@@ -6702,6 +6703,7 @@ PerformAggregateParenthesizedInitialization(Sema& S,
   }
   for (auto *Field : RD->fields()) {
     Expr *Init = Index < Args.size() ? Args[Index++] : nullptr;
+    Result->resizeInits(S.Context, Index);
     InitializedEntity MemberEntity =
       InitializedEntity::InitializeMember(Field, &Entity);
     if (Init) {
