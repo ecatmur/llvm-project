@@ -563,7 +563,7 @@ VarDecl *Sema::buildCoroutinePromise(SourceLocation Loc) {
     // assembling an argument list  q_1 ... q_n . If a viable constructor is
     // found ([over.match.viable]), then promise-constructor-arguments is ( q_1
     // , ...,  q_n ), otherwise promise-constructor-arguments is empty.
-    if (InitSeq) {
+    if (InitSeq && InitSeq.isConstructorInitialization()) {
       ExprResult Result = InitSeq.Perform(*this, Entity, Kind, CtorArgExprs);
       if (Result.isInvalid()) {
         VD->setInvalidDecl();

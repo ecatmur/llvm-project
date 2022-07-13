@@ -5909,8 +5909,8 @@ void InitializationSequence::InitializeFrom(Sema &S,
     }
 
     // C++20 permits array parenthesized initialization.
-    if (S.getLangOpts().CPlusPlus20 && Initializer &&
-        Kind.getKind() == InitializationKind::IK_Direct) {
+    if (S.getLangOpts().CPlusPlus20 &&
+      Kind.getKind() == InitializationKind::IK_Direct) {
       AddArrayParenthesizedInitStep(DestType);
       return;
     }
@@ -6721,6 +6721,78 @@ PerformConstructorInitialization(Sema &S,
 }
 
 static ExprResult
+PerformArrayParenthesizedInitialization(Sema& S,
+                                        const InitializedEntity &Entity,
+                                        MultiExprArg Args,
+                                        const InitializationSequence::Step& Step,
+                                        QualType *ResultType) {
+  InitListExpr *Result = new (S.Context) InitListExpr(
+      S.Context, Args.front()->getBeginLoc(), None, Args.back()->getEndLoc());
+  InitializedEntity IE = InitializedEntity::InitializeElement(
+      S.Context, 0, Entity);
+  bool hadError = false;
+  if (Step.Type->isIncompleteArrayType()) {
+    QualType Ty = S.Context.getConstantArrayType(
+        S.Context.getAsArrayType(Step.Type)->getElementType(),
+        llvm::APInt(32, Args.size()), nullptr, ArrayType::Normal, 0);
+    if (ResultType) {
+      if ((*ResultType)->isRValueReferenceType())
+        *ResultType = S.Context.getRValueReferenceType(Ty);
+      else if ((*ResultType)->isLValueReferenceType())
+        *ResultType = S.Context.getLValueReferenceType(Ty,
+          (*ResultType)->castAs<LValueReferenceType>()->isSpelledAsLValue());
+      else
+        *ResultType = Ty;
+    }
+    Result->setType(Ty);
+  } else if (auto CAT = S.Context.getAsConstantArrayType(Step.Type)) {
+    unsigned NumElements = CAT->getSize().getZExtValue();
+    if (Args.size() > NumElements) {
+      // Diagnose excess initializers: int a[3](1, 2, 3, /*^*/ 4);
+      int initKind = 0; // array
+      S.Diag(Args[NumElements]->getBeginLoc(), diag::err_excess_initializers)
+          << initKind << Args[NumElements]->getSourceRange();
+      hadError = true;
+    } else if (Args.size() < NumElements) {
+      // Ensure that we can value-initialize trailing elements.
+      SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
+      auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
+      MultiExprArg SubInit;
+      IE.setElementIndex(Args.size());
+      InitializationSequence ValueSequence(S, IE, Kind, SubInit);
+      TryValueInitialization(S, IE, Kind, ValueSequence);
+      auto ER = ValueSequence.Perform(S, IE, Kind, SubInit);
+      if (ER.isInvalid()) {
+        SourceLocation Loc = Entity.getDecl()->getEndLoc();
+        S.Diag(Loc, diag::note_in_omitted_aggregate_initializer)
+          << 0 << Args.size();
+        hadError = true;
+      } else {
+        Result->setArrayFiller(ER.get());
+      }
+    }
+    Result->setType(Step.Type);
+  } else {
+    Result->setType(Step.Type);
+  }
+  Result->resizeInits(S.Context, Args.size());
+  for (unsigned Index = 0; Index != Args.size(); ++Index) {
+    IE.setElementIndex(Index);
+    Expr *Init = Args[Index];
+    auto InitResult = S.PerformCopyInitialization(IE, Init->getBeginLoc(), Init);
+    if (InitResult.isInvalid())
+      hadError = true;
+    else
+      Result->setInit(Index, InitResult.getAs<Expr>());
+  }
+  if (hadError) {
+    return ExprError();
+  } else {
+    return Result;
+  }
+}
+
+static ExprResult
 PerformAggregateParenthesizedInitialization(Sema& S,
                                             const InitializedEntity &Entity,
                                             MultiExprArg Args,
@@ -6743,7 +6815,7 @@ PerformAggregateParenthesizedInitialization(Sema& S,
   unsigned Index = 0;
   Result->resizeInits(S.Context, size(Bases));
   for (auto& Base : Bases) {
-    Expr *Init = Index < Args.size() ? Args[Index++] : nullptr;
+    Expr *Init = Index < Args.size() ? Args[Index] : nullptr;
     InitializedEntity BaseEntity = InitializedEntity::InitializeBase(
         S.Context, &Base, false, &Entity);
     if (Init) {
@@ -6755,21 +6827,25 @@ PerformAggregateParenthesizedInitialization(Sema& S,
         Result->setInit(Index, InitResult.getAs<Expr>());
     } else {
       // Bases don't have NSDMIs, so value-init.
-      SourceLocation Loc = Args.back()->getEndLoc();
+      SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
       auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
       MultiExprArg SubInit;
       InitializationSequence ValueSequence(S, BaseEntity, Kind, SubInit);
       TryValueInitialization(S, BaseEntity, Kind, ValueSequence);
       auto ER = ValueSequence.Perform(S, BaseEntity, Kind, SubInit);
-      if (ER.isInvalid())
+      if (ER.isInvalid()) {
+        S.Diag(Base.getBeginLoc(), diag::note_base_class_specified_here)
+          << Base.getType() << Base.getSourceRange();
         hadError = true;
-      else
+      } else {
         Result->setInit(Index, ER.get());
+      }
     }
+    ++Index;
   }
   for (auto *Field : RD->fields()) {
-    Expr *Init = Index < Args.size() ? Args[Index++] : nullptr;
-    Result->resizeInits(S.Context, Index);
+    Expr *Init = Index < Args.size() ? Args[Index] : nullptr;
+    Result->resizeInits(S.Context, Index + 1);
     InitializedEntity MemberEntity =
       InitializedEntity::InitializeMember(Field, &Entity);
     if (Init) {
@@ -6790,17 +6866,21 @@ PerformAggregateParenthesizedInitialization(Sema& S,
         Result->setInit(Index, DIE.get());
     } else {
       // and otherwise are value-initialized.
-      SourceLocation Loc = Args.back()->getEndLoc();
+      SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
       auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
       MultiExprArg SubInit;
       InitializationSequence ValueSequence(S, MemberEntity, Kind, SubInit);
       TryValueInitialization(S, MemberEntity, Kind, ValueSequence);
       auto ER = ValueSequence.Perform(S, MemberEntity, Kind, SubInit);
-      if (ER.isInvalid())
+      if (ER.isInvalid()) {
+        S.Diag(Field->getLocation(), diag::note_in_omitted_aggregate_initializer)
+          << 1 << Field;
         hadError = true;
-      else
+      } else {
         Result->setInit(Index, ER.get());
+      }
     }
+    ++Index;
   }
   if (Index < Args.size()) {
     int initKind = 4; // struct
@@ -9032,7 +9112,11 @@ ExprResult InitializationSequence::Perform(Sema &S,
                                     CurInit.get()->getValueKind());
       break;
     }
-    case SK_ArrayParenthesizedInit:
+    case SK_ArrayParenthesizedInit: {
+      CurInit = PerformArrayParenthesizedInitialization(
+          S, Entity, Args, *Step, ResultType);
+      break;
+    }
     case SK_AggregateParenthesizedInit: {
       CurInit = PerformAggregateParenthesizedInitialization(
           S, Entity, Args, *Step);
