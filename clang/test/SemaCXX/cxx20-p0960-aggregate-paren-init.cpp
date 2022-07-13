@@ -41,18 +41,12 @@ static_assert(sizeof i4 == sizeof(int[1]));
 
 struct E {
 #if __cpp_aggregate_paren_init >= 201902
-// expected-note@-2{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-3{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-4{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-5{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-6{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-7{{candidate constructor (the implicit move constructor) not viable}}
+// expected-note@-2 +{{candidate constructor (the implicit copy constructor) not viable}}
+// expected-note@-3 +{{candidate constructor (the implicit move constructor) not viable}}
 #endif
   E(int);
 #if __cpp_aggregate_paren_init >= 201902
-// expected-note@-2{{candidate constructor not viable: requires 1 argument, but 0 were provided}}
-// expected-note@-3{{candidate constructor not viable: requires 1 argument, but 0 were provided}}
-// expected-note@-4{{candidate constructor not viable: requires 1 argument, but 0 were provided}}
+// expected-note@-2 +{{candidate constructor not viable: requires 1 argument, but 0 were provided}}
 #endif
 };
 
@@ -71,15 +65,9 @@ E e2[4](1, 2, 3);
 
 struct A {
 #if __cpp_aggregate_paren_init < 201902
-// expected-note@-2{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-3{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-4{{candidate constructor (the implicit default constructor) not viable}}
-// expected-note@-5{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-6{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-7{{candidate constructor (the implicit default constructor) not viable}}
-// expected-note@-8{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-9{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-10{{candidate constructor (the implicit default constructor) not viable}}
+// expected-note@-2 +{{candidate constructor (the implicit copy constructor) not viable}}
+// expected-note@-3 +{{candidate constructor (the implicit move constructor) not viable}}
+// expected-note@-4 +{{candidate constructor (the implicit default constructor) not viable}}
 #endif
   int a;
   int&& r;
@@ -107,18 +95,9 @@ A a5(1.0, std::move(n));    // OK
 
 struct B {
 #if __cpp_aggregate_paren_init < 201902
-// expected-note@-2{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-3{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-4{{candidate constructor (the implicit default constructor) not viable}}
-// expected-note@-5{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-6{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-7{{candidate constructor (the implicit default constructor) not viable}}
-// expected-note@-8{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-9{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-10{{candidate constructor (the implicit default constructor) not viable}}
-// expected-note@-11{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-12{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-13{{candidate constructor (the implicit default constructor) not viable}}
+// expected-note@-2 +{{candidate constructor (the implicit copy constructor) not viable}}
+// expected-note@-3 +{{candidate constructor (the implicit move constructor) not viable}}
+// expected-note@-4 +{{candidate constructor (the implicit default constructor) not viable}}
 #endif
   int a;
   int b;
@@ -141,12 +120,9 @@ B b3(1, 2, 3);
 
 struct C {
 #if __cpp_aggregate_paren_init < 201902
-// expected-note@-2{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-3{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-4{{candidate constructor (the implicit default constructor) not viable}}
-// expected-note@-5{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-6{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-7{{candidate constructor (the implicit default constructor) not viable}}
+// expected-note@-2 +{{candidate constructor (the implicit copy constructor) not viable}}
+// expected-note@-3 +{{candidate constructor (the implicit move constructor) not viable}}
+// expected-note@-4 +{{candidate constructor (the implicit default constructor) not viable}}
 #endif
   int i;
   E e;
@@ -168,12 +144,9 @@ C c2(1, 2);
 
 struct D : B, E {
 #if __cpp_aggregate_paren_init < 201902
-// expected-note@-2{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-3{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-4{{candidate constructor (the implicit default constructor) not viable}}
-// expected-note@-5{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-6{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-7{{candidate constructor (the implicit default constructor) not viable}}
+// expected-note@-2 +{{candidate constructor (the implicit copy constructor) not viable}}
+// expected-note@-3 +{{candidate constructor (the implicit move constructor) not viable}}
+// expected-note@-4 +{{candidate constructor (the implicit default constructor) not viable}}
 #else
 // expected-note@-9{{base class 'E' specified here}}
 #endif
