@@ -5908,6 +5908,13 @@ void InitializationSequence::InitializeFrom(Sema &S,
       return;
     }
 
+    // C++20 permits array parenthesized initialization.
+    if (S.getLangOpts().CPlusPlus20 && Initializer &&
+        Kind.getKind() == InitializationKind::IK_Direct) {
+      AddArrayParenthesizedInitStep(DestType);
+      return;
+    }
+
     // Note: as an GNU C extension, we allow initialization of an
     // array from a compound literal that creates an array of the same
     // type, so long as the initializer has no side effects.
