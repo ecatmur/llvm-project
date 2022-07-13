@@ -148,7 +148,7 @@ struct D : B, E {
 // expected-note@-3 +{{candidate constructor (the implicit move constructor) not viable}}
 // expected-note@-4 +{{candidate constructor (the implicit default constructor) not viable}}
 #else
-// expected-note@-9{{base class 'E' specified here}}
+// expected-note@-6{{base class 'E' specified here}}
 #endif
   int i;
 };
