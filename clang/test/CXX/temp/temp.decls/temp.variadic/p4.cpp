@@ -99,12 +99,18 @@ struct HasMixins : public Mixins... {
   HasMixins(int i);
 };
 
-struct A { }; // expected-note{{candidate constructor (the implicit copy constructor) not viable: no known conversion from 'int' to 'const A' for 1st argument}} \
-// expected-note{{candidate constructor (the implicit move constructor) not viable: no known conversion from 'int' to 'A' for 1st argument}} \
-// expected-note{{candidate constructor (the implicit default constructor) not viable: requires 0 arguments, but 1 was provided}}
-struct B { }; // expected-note{{candidate constructor (the implicit copy constructor) not viable: no known conversion from 'int' to 'const B' for 1st argument}} \
-// expected-note{{candidate constructor (the implicit move constructor) not viable: no known conversion from 'int' to 'B' for 1st argument}} \
-// expected-note{{candidate constructor (the implicit default constructor) not viable: requires 0 arguments, but 1 was provided}}
+struct A { };
+#if __cpp_aggregate_paren_init < 201902
+// expected-note@-2 {{candidate constructor (the implicit copy constructor) not viable: no known conversion from 'int' to 'const A' for 1st argument}} \
+// expected-note@-2 {{candidate constructor (the implicit move constructor) not viable: no known conversion from 'int' to 'A' for 1st argument}} \
+// expected-note@-2 {{candidate constructor (the implicit default constructor) not viable: requires 0 arguments, but 1 was provided}}
+#endif
+struct B { };
+#if __cpp_aggregate_paren_init < 201902
+// expected-note@-2 {{candidate constructor (the implicit copy constructor) not viable: no known conversion from 'int' to 'const B' for 1st argument}} \
+// expected-note@-2 {{candidate constructor (the implicit move constructor) not viable: no known conversion from 'int' to 'B' for 1st argument}} \
+// expected-note@-2 {{candidate constructor (the implicit default constructor) not viable: requires 0 arguments, but 1 was provided}}
+#endif
 struct C { };
 struct D { };
 
@@ -126,8 +132,12 @@ HasMixins<Mixins...>::HasMixins(const HasMixins &other): Mixins(other)... { }
 
 template<typename ...Mixins>
 HasMixins<Mixins...>::HasMixins(int i): Mixins(i)... { }
-// expected-error@-1 {{no matching constructor for initialization of 'A'}}
-// expected-error@-2 {{no matching constructor for initialization of 'B'}}
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2 {{no matching constructor for initialization of 'A'}}
+// expected-error@-3 {{no matching constructor for initialization of 'B'}}
+#else
+// expected-error@-5 2{{excess elements in struct initializer}}
+#endif
 
 void test_has_mixins() {
   HasMixins<A, B> ab;

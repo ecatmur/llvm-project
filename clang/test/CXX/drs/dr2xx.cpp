@@ -157,7 +157,12 @@ namespace dr218 { // dr218: yes
     void test3(A::S as) { using A::f; f(as); } // ok
     void test4(A::S as) { using B::f; f(as); } // ok
     void test5(A::S as) { int f; f(as); } // expected-error {{called object type 'int'}}
-    void test6(A::S as) { struct f {}; (void) f(as); } // expected-error {{no matching conversion}} expected-note +{{}}
+    void test6(A::S as) { struct f {}; (void) f(as); }
+#if __cpp_aggregate_paren_init < 201902
+    // expected-error@-2 {{no matching conversion}} expected-note@-2 +{{}}
+#else
+    // expected-error@-4 {{excess elements in struct initializer}}
+#endif
   };
 
   namespace D {
