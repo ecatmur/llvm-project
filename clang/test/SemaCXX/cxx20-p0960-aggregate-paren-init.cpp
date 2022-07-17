@@ -49,6 +49,25 @@ int i4[](1);
 static_assert(sizeof i4 == sizeof(int[1]));
 #endif
 
+int *p1 = new int[](1, 2, 3);
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2{{array initializer must be an initializer list}}
+#else
+static_assert(sizeof i1 == sizeof(int[3]));
+#endif
+
+int *p2[2] = new int[2](1, 2, 3);
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2{{array initializer must be an initializer list}}
+#else
+// expected-error@-4{{excess elements in array initializer}}
+#endif
+
+int *p3 = new int[4](1, 2, 3);
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2{{array initializer must be an initializer list}}
+#endif
+
 struct E {
 #if __cpp_aggregate_paren_init >= 201902
 // expected-note@-2 +{{candidate constructor (the implicit copy constructor) not viable}}
