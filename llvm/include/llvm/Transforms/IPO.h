@@ -152,13 +152,6 @@ ModulePass *createDeadArgEliminationPass();
 ModulePass *createDeadArgHackingPass();
 
 //===----------------------------------------------------------------------===//
-/// createArgumentPromotionPass - This pass promotes "by reference" arguments to
-/// be passed by value if the number of elements passed is smaller or
-/// equal to maxElements (maxElements == 0 means always promote).
-///
-Pass *createArgumentPromotionPass(unsigned maxElements = 3);
-
-//===----------------------------------------------------------------------===//
 /// createOpenMPOptLegacyPass - OpenMP specific optimizations.
 Pass *createOpenMPOptCGSCCLegacyPass();
 
@@ -282,12 +275,6 @@ createWholeProgramDevirtPass(ModuleSummaryIndex *ExportSummary,
 /// This pass splits globals into pieces for the benefit of whole-program
 /// devirtualization and control-flow integrity.
 ModulePass *createGlobalSplitPass();
-
-//===----------------------------------------------------------------------===//
-// SampleProfilePass - Loads sample profile data from disk and generates
-// IR metadata to reflect the profile.
-ModulePass *createSampleProfileLoaderPass();
-ModulePass *createSampleProfileLoaderPass(StringRef Name);
 
 /// Write ThinLTO-ready bitcode to Str.
 ModulePass *createWriteThinLTOBitcodePass(raw_ostream &Str,

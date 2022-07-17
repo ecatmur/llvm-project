@@ -501,11 +501,14 @@ struct OMPInformationCache : public InformationCache {
 
     // Remove the `noinline` attribute from `__kmpc`, `_OMP::` and `omp_`
     // functions, except if `optnone` is present.
-    for (Function &F : M) {
-      for (StringRef Prefix : {"__kmpc", "_ZN4_OMP", "omp_"})
-        if (F.getName().startswith(Prefix) &&
-            !F.hasFnAttribute(Attribute::OptimizeNone))
-          F.removeFnAttr(Attribute::NoInline);
+    if (isOpenMPDevice(M)) {
+      for (Function &F : M) {
+        for (StringRef Prefix : {"__kmpc", "_ZN4_OMP", "omp_"})
+          if (F.hasFnAttribute(Attribute::NoInline) &&
+              F.getName().startswith(Prefix) &&
+              !F.hasFnAttribute(Attribute::OptimizeNone))
+            F.removeFnAttr(Attribute::NoInline);
+      }
     }
 
     // TODO: We should attach the attributes defined in OMPKinds.def.
@@ -3337,6 +3340,9 @@ struct AAKernelInfoFunction : AAKernelInfo {
   }
 
   bool changeToSPMDMode(Attributor &A, ChangeStatus &Changed) {
+    if (!mayContainParallelRegion())
+      return false;
+
     auto &OMPInfoCache = static_cast<OMPInformationCache &>(A.getInfoCache());
 
     if (!SPMDCompatibilityTracker.isAssumed()) {
@@ -4425,10 +4431,10 @@ struct AAFoldRuntimeCallCallSiteReturned : AAFoldRuntimeCall {
     if (!SimplifiedValue)
       return Str + std::string("none");
 
-    if (!SimplifiedValue.getValue())
+    if (!SimplifiedValue.value())
       return Str + std::string("nullptr");
 
-    if (ConstantInt *CI = dyn_cast<ConstantInt>(SimplifiedValue.getValue()))
+    if (ConstantInt *CI = dyn_cast<ConstantInt>(SimplifiedValue.value()))
       return Str + std::to_string(CI->getSExtValue());
 
     return Str + std::string("unknown");
@@ -4453,7 +4459,7 @@ struct AAFoldRuntimeCallCallSiteReturned : AAFoldRuntimeCall {
         [&](const IRPosition &IRP, const AbstractAttribute *AA,
             bool &UsedAssumedInformation) -> Optional<Value *> {
           assert((isValidState() ||
-                  (SimplifiedValue && SimplifiedValue.getValue() == nullptr)) &&
+                  (SimplifiedValue && SimplifiedValue.value() == nullptr)) &&
                  "Unexpected invalid state!");
 
           if (!isAtFixpoint()) {

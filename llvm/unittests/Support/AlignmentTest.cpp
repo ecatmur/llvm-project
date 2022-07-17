@@ -63,11 +63,11 @@ TEST(AlignmentTest, ValidCTors) {
 
 TEST(AlignmentTest, CheckMaybeAlignHasValue) {
   EXPECT_TRUE(MaybeAlign(1));
-  EXPECT_TRUE(MaybeAlign(1).hasValue());
+  EXPECT_TRUE(MaybeAlign(1).has_value());
   EXPECT_FALSE(MaybeAlign(0));
-  EXPECT_FALSE(MaybeAlign(0).hasValue());
+  EXPECT_FALSE(MaybeAlign(0).has_value());
   EXPECT_FALSE(MaybeAlign());
-  EXPECT_FALSE(MaybeAlign().hasValue());
+  EXPECT_FALSE(MaybeAlign().has_value());
 }
 
 TEST(AlignmentTest, Division) {
@@ -113,21 +113,6 @@ TEST(AlignmentTest, Log2) {
   }
 }
 
-TEST(AlignmentTest, MinAlign) {
-  struct {
-    uint64_t A;
-    uint64_t B;
-    uint64_t MinAlign;
-  } kTests[] = {
-      {1, 2, 1},
-      {8, 4, 4},
-  };
-  for (const auto &T : kTests) {
-    EXPECT_EQ(MinAlign(T.A, T.B), T.MinAlign);
-    EXPECT_EQ(commonAlignment(Align(T.A), Align(T.B)), T.MinAlign);
-  }
-}
-
 TEST(AlignmentTest, Encode_Decode) {
   for (uint64_t Value : getValidAlignments()) {
     {
@@ -165,8 +150,8 @@ TEST(AlignmentTest, isAligned_isAddrAligned) {
     MaybeAlign A(T.alignment);
     // Test Align
     if (A) {
-      EXPECT_EQ(isAligned(A.getValue(), T.offset), T.isAligned);
-      EXPECT_EQ(isAddrAligned(A.getValue(), T.forgedAddr()), T.isAligned);
+      EXPECT_EQ(isAligned(A.value(), T.offset), T.isAligned);
+      EXPECT_EQ(isAddrAligned(A.value(), T.forgedAddr()), T.isAligned);
     }
   }
 }

@@ -17,6 +17,7 @@
 
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/TypeOrdering.h"
 #include "clang/Analysis/FlowSensitive/Solver.h"
 #include "clang/Analysis/FlowSensitive/StorageLocation.h"
 #include "clang/Analysis/FlowSensitive/Value.h"
@@ -43,6 +44,9 @@ namespace dataflow {
 ///
 const Expr &ignoreCFGOmittedNodes(const Expr &E);
 const Stmt &ignoreCFGOmittedNodes(const Stmt &S);
+
+/// Returns the set of all fields in the type.
+llvm::DenseSet<const FieldDecl *> getObjectFields(QualType Type);
 
 /// Owns objects that encompass the state of a program and stores context that
 /// is used during dataflow analysis.
@@ -84,6 +88,19 @@ public:
     Vals.push_back(std::move(Val));
     return *cast<T>(Vals.back().get());
   }
+
+  /// Returns a stable storage location appropriate for `Type`.
+  ///
+  /// Requirements:
+  ///
+  ///  `Type` must not be null.
+  StorageLocation &getStableStorageLocation(QualType Type);
+
+  /// Returns a stable storage location for `D`.
+  StorageLocation &getStableStorageLocation(const VarDecl &D);
+
+  /// Returns a stable storage location for `E`.
+  StorageLocation &getStableStorageLocation(const Expr &E);
 
   /// Assigns `Loc` as the storage location of `D`.
   ///
@@ -135,6 +152,11 @@ public:
   StorageLocation *getThisPointeeStorageLocation() const {
     return ThisPointeeLoc;
   }
+
+  /// Returns a pointer value that represents a null pointer. Calls with
+  /// `PointeeType` that are canonically equivalent will return the same result.
+  /// A null `PointeeType` can be used for the pointee of `std::nullptr_t`.
+  PointerValue &getOrCreateNullPointerValue(QualType PointeeType);
 
   /// Returns a symbolic boolean value that models a boolean literal equal to
   /// `Value`.
@@ -195,6 +217,27 @@ public:
   AtomicBoolValue &joinFlowConditions(AtomicBoolValue &FirstToken,
                                       AtomicBoolValue &SecondToken);
 
+  // FIXME: This function returns the flow condition expressed directly as its
+  // constraints: (C1 AND C2 AND ...). This differs from the general approach in
+  // the framework where a flow condition is represented as a token (an atomic
+  // boolean) with dependencies and constraints tracked in `FlowConditionDeps`
+  // and `FlowConditionConstraints`: (FC <=> C1 AND C2 AND ...).
+  // Consider if we should make the representation of flow condition consistent,
+  // returning an atomic boolean token with separate constraints instead.
+  //
+  /// Builds and returns the logical formula defining the flow condition
+  /// identified by `Token`. If a value in the formula is present as a key in
+  /// `Substitutions`, it will be substituted with the value it maps to.
+  /// As an example, say we have flow condition tokens FC1, FC2, FC3 and
+  /// FlowConditionConstraints: { FC1: C1,
+  ///                             FC2: C2,
+  ///                             FC3: (FC1 v FC2) ^ C3 }
+  /// buildAndSubstituteFlowCondition(FC3, {{C1 -> C1'}}) will return a value
+  /// corresponding to (C1' v C2) ^ C3.
+  BoolValue &buildAndSubstituteFlowCondition(
+      AtomicBoolValue &Token,
+      llvm::DenseMap<AtomicBoolValue *, BoolValue *> Substitutions);
+
   /// Returns true if and only if the constraints of the flow condition
   /// identified by `Token` imply that `Val` is true.
   bool flowConditionImplies(AtomicBoolValue &Token, BoolValue &Val);
@@ -209,6 +252,17 @@ public:
   bool equivalentBoolValues(BoolValue &Val1, BoolValue &Val2);
 
 private:
+  struct NullableQualTypeDenseMapInfo : private llvm::DenseMapInfo<QualType> {
+    static QualType getEmptyKey() {
+      // Allow a NULL `QualType` by using a different value as the empty key.
+      return QualType::getFromOpaquePtr(reinterpret_cast<Type *>(1));
+    }
+
+    using DenseMapInfo::getHashValue;
+    using DenseMapInfo::getTombstoneKey;
+    using DenseMapInfo::isEqual;
+  };
+
   /// Adds all constraints of the flow condition identified by `Token` and all
   /// of its transitive dependencies to `Constraints`. `VisitedTokens` is used
   /// to track tokens of flow conditions that were already visited by recursive
@@ -217,18 +271,36 @@ private:
       AtomicBoolValue &Token, llvm::DenseSet<BoolValue *> &Constraints,
       llvm::DenseSet<AtomicBoolValue *> &VisitedTokens);
 
-  /// Returns the result of satisfiability checking on `Constraints`.
-  /// Possible return values are:
-  /// - `Satisfiable`: There exists a satisfying assignment for `Constraints`.
-  /// - `Unsatisfiable`: There is no satisfying assignment for `Constraints`.
-  /// - `TimedOut`: The solver gives up on finding a satisfying assignment.
+  /// Returns the outcome of satisfiability checking on `Constraints`.
+  /// Possible outcomes are:
+  /// - `Satisfiable`: A satisfying assignment exists and is returned.
+  /// - `Unsatisfiable`: A satisfying assignment does not exist.
+  /// - `TimedOut`: The search for a satisfying assignment was not completed.
   Solver::Result querySolver(llvm::DenseSet<BoolValue *> Constraints);
 
   /// Returns true if the solver is able to prove that there is no satisfying
   /// assignment for `Constraints`
   bool isUnsatisfiable(llvm::DenseSet<BoolValue *> Constraints) {
-    return querySolver(std::move(Constraints)) == Solver::Result::Unsatisfiable;
+    return querySolver(std::move(Constraints)).getStatus() ==
+           Solver::Result::Status::Unsatisfiable;
   }
+
+  /// Returns a boolean value as a result of substituting `Val` and its sub
+  /// values based on entries in `SubstitutionsCache`. Intermediate results are
+  /// stored in `SubstitutionsCache` to avoid reprocessing values that have
+  /// already been visited.
+  BoolValue &substituteBoolValue(
+      BoolValue &Val,
+      llvm::DenseMap<BoolValue *, BoolValue *> &SubstitutionsCache);
+
+  /// Builds and returns the logical formula defining the flow condition
+  /// identified by `Token`, sub values may be substituted based on entries in
+  /// `SubstitutionsCache`. Intermediate results are stored in
+  /// `SubstitutionsCache` to avoid reprocessing values that have already been
+  /// visited.
+  BoolValue &buildAndSubstituteFlowConditionWithCache(
+      AtomicBoolValue &Token,
+      llvm::DenseMap<BoolValue *, BoolValue *> &SubstitutionsCache);
 
   std::unique_ptr<Solver> S;
 
@@ -245,6 +317,15 @@ private:
   llvm::DenseMap<const Expr *, StorageLocation *> ExprToLoc;
 
   StorageLocation *ThisPointeeLoc = nullptr;
+
+  // Null pointer values, keyed by the canonical pointee type.
+  //
+  // FIXME: The pointer values are indexed by the pointee types which are
+  // required to initialize the `PointeeLoc` field in `PointerValue`. Consider
+  // creating a type-independent `NullPointerValue` without a `PointeeLoc`
+  // field.
+  llvm::DenseMap<QualType, PointerValue *, NullableQualTypeDenseMapInfo>
+      NullPointerVals;
 
   AtomicBoolValue &TrueVal;
   AtomicBoolValue &FalseVal;

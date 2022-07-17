@@ -1049,12 +1049,17 @@ public:
         // we may end up with a main range not covering all subranges.
         // This is extremely rare case, so let's check and reconstruct the
         // main range.
-        for (LiveInterval::SubRange &S : LI.subranges()) {
-          if (LI.covers(S))
-            continue;
-          LI.clear();
-          LIS.constructMainRangeFromSubranges(LI);
-          break;
+        if (LI.hasSubRanges()) {
+          unsigned SubReg = MO.getSubReg();
+          LaneBitmask LaneMask = SubReg ? TRI.getSubRegIndexLaneMask(SubReg)
+                                        : MRI.getMaxLaneMaskForVReg(Reg);
+          for (LiveInterval::SubRange &S : LI.subranges()) {
+            if ((S.LaneMask & LaneMask).none() || LI.covers(S))
+              continue;
+            LI.clear();
+            LIS.constructMainRangeFromSubranges(LI);
+            break;
+          }
         }
 
         continue;
@@ -1412,7 +1417,7 @@ private:
             NewIdxDef.getRegSlot(), (NewIdxOut + 1)->end, OldIdxVNI);
         OldIdxVNI->def = NewIdxDef;
         // Modify subsequent segments to be defined by the moved def OldIdxVNI.
-        for (auto Idx = NewIdxOut + 2; Idx <= OldIdxOut; ++Idx)
+        for (auto *Idx = NewIdxOut + 2; Idx <= OldIdxOut; ++Idx)
           Idx->valno = OldIdxVNI;
         // Aggressively remove all dead flags from the former dead definition.
         // Kill/dead flags shouldn't be used while live intervals exist; they

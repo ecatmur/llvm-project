@@ -311,8 +311,9 @@ static unsigned ProcessCharEscape(const char *ThisTokBegin,
           << tok::r_brace;
     else if (!HadError) {
       Diag(Diags, Features, Loc, ThisTokBegin, EscapeBegin, ThisTokBuf,
-           diag::ext_delimited_escape_sequence)
-          << /*delimited*/ 0;
+           Features.CPlusPlus2b ? diag::warn_cxx2b_delimited_escape_sequence
+                                : diag::ext_delimited_escape_sequence)
+          << /*delimited*/ 0 << (Features.CPlusPlus ? 1 : 0);
     }
   }
 
@@ -641,8 +642,9 @@ static bool ProcessUCNEscape(const char *ThisTokBegin, const char *&ThisTokBuf,
 
   if ((IsDelimitedEscapeSequence || IsNamedEscapeSequence) && Diags)
     Diag(Diags, Features, Loc, ThisTokBegin, UcnBegin, ThisTokBuf,
-         diag::ext_delimited_escape_sequence)
-        << (IsNamedEscapeSequence ? 1 : 0);
+         Features.CPlusPlus2b ? diag::warn_cxx2b_delimited_escape_sequence
+                              : diag::ext_delimited_escape_sequence)
+        << (IsNamedEscapeSequence ? 1 : 0) << (Features.CPlusPlus ? 1 : 0);
 
   return true;
 }
@@ -1681,7 +1683,7 @@ CharLiteralParser::CharLiteralParser(const char *begin, const char *end,
         // If we see bad encoding for unprefixed character literals, warn and
         // simply copy the byte values, for compatibility with gcc and
         // older versions of clang.
-        bool NoErrorOnBadEncoding = isAscii();
+        bool NoErrorOnBadEncoding = isOrdinary();
         unsigned Msg = diag::err_bad_character_encoding;
         if (NoErrorOnBadEncoding)
           Msg = diag::warn_bad_character_encoding;
@@ -1731,9 +1733,9 @@ CharLiteralParser::CharLiteralParser(const char *begin, const char *end,
   unsigned NumCharsSoFar = buffer_begin - &codepoint_buffer.front();
 
   if (NumCharsSoFar > 1) {
-    if (isAscii() && NumCharsSoFar == 4)
+    if (isOrdinary() && NumCharsSoFar == 4)
       PP.Diag(Loc, diag::warn_four_char_character_literal);
-    else if (isAscii())
+    else if (isOrdinary())
       PP.Diag(Loc, diag::warn_multichar_character_literal);
     else {
       PP.Diag(Loc, diag::err_multichar_character_literal) << (isWide() ? 0 : 1);
@@ -1749,7 +1751,7 @@ CharLiteralParser::CharLiteralParser(const char *begin, const char *end,
   // Narrow character literals act as though their value is concatenated
   // in this implementation, but warn on overflow.
   bool multi_char_too_long = false;
-  if (isAscii() && isMultiChar()) {
+  if (isOrdinary() && isMultiChar()) {
     LitVal = 0;
     for (size_t i = 0; i < NumCharsSoFar; ++i) {
       // check for enough leading zeros to shift into
@@ -1773,7 +1775,7 @@ CharLiteralParser::CharLiteralParser(const char *begin, const char *end,
   // if 'char' is signed for this target (C99 6.4.4.4p10).  Note that multiple
   // character constants are not sign extended in the this implementation:
   // '\xFF\xFF' = 65536 and '\x0\xFF' = 255, which matches GCC.
-  if (isAscii() && NumCharsSoFar == 1 && (Value & 128) &&
+  if (isOrdinary() && NumCharsSoFar == 1 && (Value & 128) &&
       PP.getLangOpts().CharIsSigned)
     Value = (signed char)Value;
 }
@@ -1878,7 +1880,7 @@ void StringLiteralParser::init(ArrayRef<Token> StringToks){
     // Remember if we see any wide or utf-8/16/32 strings.
     // Also check for illegal concatenations.
     if (StringToks[i].isNot(Kind) && StringToks[i].isNot(tok::string_literal)) {
-      if (isAscii()) {
+      if (isOrdinary()) {
         Kind = StringToks[i].getKind();
       } else {
         if (Diags)
@@ -2162,7 +2164,7 @@ bool StringLiteralParser::CopyStringFragment(const Token &Tok,
   // If we see bad encoding for unprefixed string literals, warn and
   // simply copy the byte values, for compatibility with gcc and older
   // versions of clang.
-  bool NoErrorOnBadEncoding = isAscii();
+  bool NoErrorOnBadEncoding = isOrdinary();
   if (NoErrorOnBadEncoding) {
     memcpy(ResultPtr, Fragment.data(), Fragment.size());
     ResultPtr += Fragment.size();
