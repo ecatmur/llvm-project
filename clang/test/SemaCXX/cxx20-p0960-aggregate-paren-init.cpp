@@ -180,6 +180,7 @@ D d2(B(), 10, 1);
 struct S { int i; int j; };
 struct E { E(int); };
 struct U { E e; int j; };
+template<class T> struct V { T i = "nope"; };
 
 static_assert(std::is_constructible_v<S>);
 static_assert(std::is_constructible_v<S, int> == (__cpp_aggregate_paren_init >= 201902));
@@ -200,3 +201,8 @@ static_assert(not std::is_constructible_v<int[2], int, int, int>);
 static_assert(std::is_constructible_v<int[], int, int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(not std::is_constructible_v<E[2], int>);
 static_assert(std::is_constructible_v<int[2], int, int> == (__cpp_aggregate_paren_init >= 201902));
+
+static_assert(std::is_constructible_v<V<char const*>>);
+static_assert(not std::is_constructible_v<V<int>>);
+static_assert(std::is_constructible_v<V<char const*>, char const*> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(std::is_constructible_v<V<int>, int> == (__cpp_aggregate_paren_init >= 201902));
