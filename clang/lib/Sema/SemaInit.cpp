@@ -3948,6 +3948,12 @@ static bool TryInitializerListConstruction(Sema &S,
   return true;
 }
 
+static void TryValueInitialization(Sema &S,
+                                   const InitializedEntity &Entity,
+                                   const InitializationKind &Kind,
+                                   InitializationSequence &Sequence,
+                                   InitListExpr *InitList = nullptr);
+
 static ExprResult
 TryArrayParenthesizedInitialization(Sema& S,
                                     const InitializedEntity &Entity,
@@ -4496,12 +4502,6 @@ static void TryReferenceInitializationCore(Sema &S,
                                            QualType cv2T2, QualType T2,
                                            Qualifiers T2Quals,
                                            InitializationSequence &Sequence);
-
-static void TryValueInitialization(Sema &S,
-                                   const InitializedEntity &Entity,
-                                   const InitializationKind &Kind,
-                                   InitializationSequence &Sequence,
-                                   InitListExpr *InitList = nullptr);
 
 /// Attempt list initialization of a reference.
 static void TryReferenceListInitialization(Sema &S,
