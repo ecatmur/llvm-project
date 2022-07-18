@@ -191,9 +191,9 @@ D d2(B(), 10, 1);
 // expected-error@-2{{no matching constructor for initialization of 'D'}}
 #endif
 
-template<class T> struct F { T i = "nope"; };
-// expected-error@-1 {{cannot initialize a member subobject of type 'int' with an lvalue of type 'const char[5]'}}
-// expected-note@-2 {{in instantiation of default member initializer 'F<int>::i' requested here}}
+template<class T> struct F { T a; T b = "str"; };
+// expected-error@-1 {{cannot initialize a member subobject of type 'int' with an lvalue of type 'const char[4]'}}
+// expected-note@-2 {{in instantiation of default member initializer 'F<int>::b' requested here}}
 #if __cpp_aggregate_paren_init < 201902
 // expected-note@-4 +{{candidate constructor (the implicit copy constructor) not viable}}
 // expected-note@-5 +{{candidate constructor (the implicit move constructor) not viable}}
@@ -204,10 +204,7 @@ F<char const*> f2("ok");
 #if __cpp_aggregate_paren_init < 201902
 // expected-error@-2 {{no matching constructor for initialization of 'F<const char *>'}}
 #endif
-F<int> f3;
-#if __cpp_aggregate_paren_init < 201902
-// expected-note@-2 {{in evaluation of exception specification for 'F<int>::F' needed here}}
-#endif
+F<int> f3; // expected-note {{in evaluation of exception specification for 'F<int>::F' needed here}}
 F<int> f4(10);
 #if __cpp_aggregate_paren_init < 201902
 // expected-error@-2 {{no matching constructor for initialization of 'F<int>'}}
@@ -230,12 +227,11 @@ static_assert(std::is_constructible_v<C, int, int> == (__cpp_aggregate_paren_ini
 static_assert(std::is_constructible_v<C, int, int, int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(not std::is_constructible_v<D, B>);
 static_assert(std::is_constructible_v<D, B, int, int> == (__cpp_aggregate_paren_init >= 201902));
-static_assert(std::is_constructible_v<F<char const*>>);
 static_assert(std::is_constructible_v<F<char const*>, char const*> == (__cpp_aggregate_paren_init >= 201902));
-static_assert(not std::is_constructible_v<F<int>>);
-static_assert(std::is_constructible_v<F<int>, int> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(not std::is_constructible_v<F<int>, int>);
+static_assert(std::is_constructible_v<F<int>, int, int> == (__cpp_aggregate_paren_init >= 201902));
 
-static_assert(std::is_constructible_v<int[2]>);
+static_assert(std::is_constructible_v<int[2]>); // FIXME, clang bug pre-C++20: new int(a...) is valid for empty a
 static_assert(std::is_constructible_v<int[2], int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(std::is_constructible_v<int[2], int, int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(not std::is_constructible_v<int[2], int, int, int>);
