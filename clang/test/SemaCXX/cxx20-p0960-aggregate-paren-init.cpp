@@ -190,10 +190,24 @@ D d2(B(), 10, 1);
 #endif
 
 template<class T> struct F { T i = "nope"; };
+// expected-error@-1 {{cannot initialize a member subobject of type 'int' with an lvalue of type 'const char[5]'}}
+// expected-note@-2 {{in instantiation of default member initializer 'F<int>::i' requested here}}
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-4 +[{note: candidate constructor (the implicit copy constructor) not viable}}
+// expected-error@-5 +[{note: candidate constructor (the implicit move constructor) not viable}}
+// expected-error@-6 +[{note: candidate constructor (the implicit default constructor) not viable}}
+#endif
 F<char const*> f1;
-F<char const*> f2("ok"); // happy c++20
-F<int> f3; // error error
-F<int> f4(10); // happy c++20
+F<char const*> f2("ok");
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2 {{no matching constructor for initialization of 'F<const char *>'}}
+#endif
+F<int> f3;
+// expected-error@-1 {{in evaluation of exception specification for 'F<int>::F' needed here}}
+F<int> f4(10);
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2 {{no matching constructor for initialization of 'F<int>'}}
+#endif
 
 #ifndef __cpp_aggregate_paren_init
 #   define __cpp_aggregate_paren_init 0
