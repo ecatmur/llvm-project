@@ -20,9 +20,7 @@ namespace special_cases
 
 template<int a>
 struct A {
-#if __cpp_aggregate_paren_init < 201902
-// expected-note@-2+ {{candidate constructor}}
-#endif
+// expected-note@-1+ {{candidate constructor}}
   explicit(1 << a)
 // expected-note@-1 {{negative shift count -1}}
 // expected-error@-2 {{explicit specifier argument is not a constant expression}}
@@ -30,12 +28,8 @@ struct A {
 };
 
 A<-1> a(0);
-#if __cpp_aggregate_paren_init < 201902
-// expected-error@-2 {{no matching constructor}}
-#else
-// expected-error@-4 {{excess elements in struct initializer}}
-#endif
-// expected-note@-6 {{in instantiation of template class}}
+// expected-error@-1 {{no matching constructor}}
+// expected-note@-2 {{in instantiation of template class}}
 
 template<int a>
 struct B {
