@@ -12,6 +12,16 @@
 
 // definitions for std::move
 namespace std { template <class T> T &&move(T &); }
+// definitions for std::is_constructible
+namespace std {
+template<class T, class... A> constexpr bool is_constructible_impl(...) { return false; }
+template<class T, class... A>
+constexpr bool is_constructible_impl(decltype(new T(*(A*) nullptr...))) { return true; }
+template<class T, class... A>
+struct is_constructible { static constexpr bool value = is_constructible_impl<T, A...>(0); };
+template<class T, class... A>
+inline constexpr bool is_constructible_v = is_constructible<T, A...>::value;
+}
 
 int i1[](1, 2, 3);
 #if __cpp_aggregate_paren_init < 201902
@@ -37,6 +47,21 @@ int i4[](1);
 // expected-error@-2{{array initializer must be an initializer list}}
 #else
 static_assert(sizeof i4 == sizeof(int[1]));
+#endif
+
+int *p1 = new int[](1, 2, 3);
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2{{array initializer must be an initializer list}}
+#endif
+
+int *p2[2] = new int[2](1, 2, 3);
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2{{array initializer must be an initializer list}}
+#endif
+
+int *p3 = new int[4](1, 2, 3);
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2{{array initializer must be an initializer list}}
 #endif
 
 struct E {
@@ -163,3 +188,53 @@ D d2(B(), 10, 1);
 #if __cpp_aggregate_paren_init < 201902
 // expected-error@-2{{no matching constructor for initialization of 'D'}}
 #endif
+
+template<class T> struct F { T i = "nope"; };
+// expected-error@-1 {{cannot initialize a member subobject of type 'int' with an lvalue of type 'const char[5]'}}
+// expected-note@-2 {{in instantiation of default member initializer 'F<int>::i' requested here}}
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-4 +[{note: candidate constructor (the implicit copy constructor) not viable}}
+// expected-error@-5 +[{note: candidate constructor (the implicit move constructor) not viable}}
+// expected-error@-6 +[{note: candidate constructor (the implicit default constructor) not viable}}
+#endif
+F<char const*> f1;
+F<char const*> f2("ok");
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2 {{no matching constructor for initialization of 'F<const char *>'}}
+#endif
+F<int> f3;
+// expected-error@-1 {{in evaluation of exception specification for 'F<int>::F' needed here}}
+F<int> f4(10);
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2 {{no matching constructor for initialization of 'F<int>'}}
+#endif
+
+#ifndef __cpp_aggregate_paren_init
+#   define __cpp_aggregate_paren_init 0
+#endif
+
+static_assert(std::is_constructible_v<B>);
+static_assert(std::is_constructible_v<B, int> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(std::is_constructible_v<B, long> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(std::is_constructible_v<B, float> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(std::is_constructible_v<B, int, int> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(not std::is_constructible_v<B, int, int, int>);
+static_assert(not std::is_constructible_v<B, char*>);
+static_assert(not std::is_constructible_v<B, int, char*>);
+static_assert(not std::is_constructible_v<C, int>);
+static_assert(std::is_constructible_v<C, int, int> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(std::is_constructible_v<C, int, int, int> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(not std::is_constructible_v<D, B>);
+static_assert(std::is_constructible_v<D, B, int, int> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(std::is_constructible_v<F<char const*>>);
+static_assert(std::is_constructible_v<F<char const*>, char const*> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(not std::is_constructible_v<F<int>>);
+static_assert(std::is_constructible_v<F<int>, int> == (__cpp_aggregate_paren_init >= 201902));
+
+static_assert(std::is_constructible_v<int[2]>);
+static_assert(std::is_constructible_v<int[2], int> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(std::is_constructible_v<int[2], int, int> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(not std::is_constructible_v<int[2], int, int, int>);
+static_assert(std::is_constructible_v<int[], int, int> == (__cpp_aggregate_paren_init >= 201902));
+static_assert(not std::is_constructible_v<E[2], int>);
+static_assert(std::is_constructible_v<int[2], int, int> == (__cpp_aggregate_paren_init >= 201902));

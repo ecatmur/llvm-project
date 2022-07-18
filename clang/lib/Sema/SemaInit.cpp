@@ -3948,6 +3948,197 @@ static bool TryInitializerListConstruction(Sema &S,
   return true;
 }
 
+static void TryValueInitialization(Sema &S,
+                                   const InitializedEntity &Entity,
+                                   const InitializationKind &Kind,
+                                   InitializationSequence &Sequence,
+                                   InitListExpr *InitList = nullptr);
+
+static ExprResult
+TryArrayParenthesizedInitialization(Sema& S,
+                                    const InitializedEntity &Entity,
+                                    MultiExprArg Args,
+                                    QualType DestType,
+                                    QualType *ResultType,
+                                    bool VerifyOnly) {
+  InitListExpr *Result = VerifyOnly ? nullptr : new (S.Context) InitListExpr(
+      S.Context, Args.front()->getBeginLoc(), None, Args.back()->getEndLoc());
+  InitializedEntity IE = InitializedEntity::InitializeElement(
+      S.Context, 0, Entity);
+  bool hadError = false;
+  llvm::Optional<unsigned> NumElements;
+  if (DestType->isIncompleteArrayType()) {
+    NumElements = Args.size();
+    DestType = S.Context.getConstantArrayType(
+        S.Context.getAsArrayType(DestType)->getElementType(),
+        llvm::APInt(32, *NumElements), nullptr, ArrayType::Normal, 0);
+    if (ResultType) {
+      if ((*ResultType)->isRValueReferenceType())
+        *ResultType = S.Context.getRValueReferenceType(DestType);
+      else if ((*ResultType)->isLValueReferenceType())
+        *ResultType = S.Context.getLValueReferenceType(DestType,
+          (*ResultType)->castAs<LValueReferenceType>()->isSpelledAsLValue());
+      else
+        *ResultType = DestType;
+    }
+  } else if (auto CAT = S.Context.getAsConstantArrayType(DestType)) {
+    NumElements = CAT->getSize().getZExtValue();
+    if (Args.size() > *NumElements) {
+      // Diagnose excess initializers: int a[3](1, 2, 3, /*^*/ 4);
+      if (!VerifyOnly)
+        S.Diag(Args[*NumElements]->getBeginLoc(), diag::err_excess_initializers)
+            << /* initKind = */ 0 /* array */
+            << Args[*NumElements]->getSourceRange();
+      hadError = true;
+    }
+  }
+  if (!NumElements || Args.size() < *NumElements) {
+    // Ensure that we can value-initialize trailing elements.
+    SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
+    auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
+    MultiExprArg SubInit;
+    IE.setElementIndex(Args.size());
+    InitializationSequence ValueSequence(S, IE, Kind, SubInit);
+    TryValueInitialization(S, IE, Kind, ValueSequence);
+    auto ER = ValueSequence.Perform(S, IE, Kind, SubInit);
+    if (ER.isInvalid()) {
+      if (!VerifyOnly)
+        S.Diag(Entity.getDecl()->getEndLoc(),
+               diag::note_in_omitted_aggregate_initializer)
+          << 0 << Args.size();
+      hadError = true;
+    } else if (Result) {
+      Result->setArrayFiller(ER.get());
+    }
+  }
+  if (Result) {
+    Result->setType(DestType);
+    Result->resizeInits(S.Context, Args.size());
+  }
+  for (unsigned Index = 0; Index != Args.size(); ++Index) {
+    IE.setElementIndex(Index);
+    Expr *Init = Args[Index];
+    auto InitResult = S.PerformCopyInitialization(IE, Init->getBeginLoc(), Init);
+    if (InitResult.isInvalid())
+      hadError = true;
+    else if (Result)
+      Result->setInit(Index, InitResult.getAs<Expr>());
+  }
+  if (hadError) {
+    return ExprError();
+  } else {
+    return Result;
+  }
+}
+
+static ExprResult
+TryAggregateParenthesizedInitialization(Sema& S,
+                                        const InitializedEntity &Entity,
+                                        MultiExprArg Args,
+                                        QualType DestType,
+                                        bool VerifyOnly) {
+  InitListExpr *Result = VerifyOnly ? nullptr : new (S.Context) InitListExpr(
+      S.Context, Args.front()->getBeginLoc(), None, Args.back()->getEndLoc());
+  if (Result)
+    Result->setType(DestType);
+
+  // Otherwise, if no constructor is viable, the destination type is an aggregate class,
+  // and the initializer is a parenthesized expression-list, the object is initialized
+  // as follows.
+  RecordDecl *RD = DestType->castAs<RecordType>()->getDecl();
+  auto Bases =
+      CXXRecordDecl::base_class_range(CXXRecordDecl::base_class_iterator(),
+                                      CXXRecordDecl::base_class_iterator());
+  if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
+    Bases = CXXRD->bases();
+
+  bool hadError = false;
+  unsigned Index = 0;
+  if (Result)
+    Result->resizeInits(S.Context, size(Bases));
+  for (auto& Base : Bases) {
+    Expr *Init = Index < Args.size() ? Args[Index] : nullptr;
+    InitializedEntity BaseEntity = InitializedEntity::InitializeBase(
+        S.Context, &Base, false, &Entity);
+    if (Init) {
+      // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
+      auto InitResult = S.PerformCopyInitialization(BaseEntity, Init->getBeginLoc(), Init);
+      if (InitResult.isInvalid())
+        hadError = true;
+      else if (Result)
+        Result->setInit(Index, InitResult.getAs<Expr>());
+    } else {
+      // Bases don't have NSDMIs, so value-init.
+      SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
+      auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
+      MultiExprArg SubInit;
+      InitializationSequence ValueSequence(S, BaseEntity, Kind, SubInit);
+      TryValueInitialization(S, BaseEntity, Kind, ValueSequence);
+      auto ER = ValueSequence.Perform(S, BaseEntity, Kind, SubInit);
+      if (ER.isInvalid()) {
+        if (!VerifyOnly)
+          S.Diag(Base.getBeginLoc(), diag::note_base_class_specified_here)
+            << Base.getType() << Base.getSourceRange();
+        hadError = true;
+      } else if (Result) {
+        Result->setInit(Index, ER.get());
+      }
+    }
+    ++Index;
+  }
+  for (auto *Field : RD->fields()) {
+    Expr *Init = Index < Args.size() ? Args[Index] : nullptr;
+    if (Result)
+      Result->resizeInits(S.Context, Index + 1);
+    InitializedEntity MemberEntity =
+      InitializedEntity::InitializeMember(Field, &Entity);
+    if (Init) {
+      // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
+      auto InitResult = S.PerformCopyInitialization(MemberEntity, Init->getBeginLoc(), Init);
+      if (InitResult.isInvalid())
+        hadError = true;
+      else if (Result)
+        Result->setInit(Index, InitResult.getAs<Expr>());
+    } else if (Field->hasInClassInitializer()) {
+      // The remaining elements are initialized with their default member initializers,
+      // if any,
+      SourceLocation Loc = Args.back()->getEndLoc();
+      ExprResult DIE = S.BuildCXXDefaultInitExpr(Loc, Field);
+      if (DIE.isInvalid())
+        hadError = true;
+      else if (Result)
+        Result->setInit(Index, DIE.get());
+    } else {
+      // and otherwise are value-initialized.
+      SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
+      auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
+      MultiExprArg SubInit;
+      InitializationSequence ValueSequence(S, MemberEntity, Kind, SubInit);
+      TryValueInitialization(S, MemberEntity, Kind, ValueSequence);
+      auto ER = ValueSequence.Perform(S, MemberEntity, Kind, SubInit);
+      if (ER.isInvalid()) {
+        if (!VerifyOnly)
+          S.Diag(Field->getLocation(), diag::note_in_omitted_aggregate_initializer)
+            << 1 << Field;
+        hadError = true;
+      } else if (Result) {
+        Result->setInit(Index, ER.get());
+      }
+    }
+    ++Index;
+  }
+  if (Index < Args.size()) {
+    if (!VerifyOnly)
+      S.Diag(Args[Index]->getBeginLoc(), diag::err_excess_initializers)
+        << /* initKind = */ 4 /* struct */ << Args[Index]->getSourceRange();
+    return ExprError();
+  } else if (hadError) {
+    return ExprError();
+  } else {
+    return Result;
+  }
+}
+
 /// Determine if the constructor has the signature of a copy or move
 /// constructor for the type T of the class in which it was found. That is,
 /// determine if its first parameter is of type T or reference to (possibly
@@ -4192,7 +4383,9 @@ static void TryConstructorInitialization(Sema &S,
   // class, and the initializer is a parenthesized expression-list, the object is
   // initialized as follows. [...]
   if (S.getLangOpts().CPlusPlus20 && Result == OR_No_Viable_Function &&
-      DestType->isAggregateType() && Kind.getKind() == InitializationKind::IK_Direct) {
+      DestType->isAggregateType() && Kind.getKind() == InitializationKind::IK_Direct &&
+      !TryAggregateParenthesizedInitialization(
+        S, Entity, Args, DestType, true).isInvalid()) {
     Sequence.AddAggregateParenthesizedInitStep(DestType);
     return;
   }
@@ -4309,12 +4502,6 @@ static void TryReferenceInitializationCore(Sema &S,
                                            QualType cv2T2, QualType T2,
                                            Qualifiers T2Quals,
                                            InitializationSequence &Sequence);
-
-static void TryValueInitialization(Sema &S,
-                                   const InitializedEntity &Entity,
-                                   const InitializationKind &Kind,
-                                   InitializationSequence &Sequence,
-                                   InitListExpr *InitList = nullptr);
 
 /// Attempt list initialization of a reference.
 static void TryReferenceListInitialization(Sema &S,
@@ -5910,7 +6097,9 @@ void InitializationSequence::InitializeFrom(Sema &S,
 
     // C++20 permits array parenthesized initialization.
     if (S.getLangOpts().CPlusPlus20 &&
-      Kind.getKind() == InitializationKind::IK_Direct) {
+        Kind.getKind() == InitializationKind::IK_Direct &&
+        !TryArrayParenthesizedInitialization(
+          S, Entity, Args, DestType, nullptr, true).isInvalid()) {
       AddArrayParenthesizedInitStep(DestType);
       return;
     }
@@ -6718,180 +6907,6 @@ PerformConstructorInitialization(Sema &S,
     CurInit = S.MaybeBindToTemporary(CurInit.get());
 
   return CurInit;
-}
-
-static ExprResult
-PerformArrayParenthesizedInitialization(Sema& S,
-                                        const InitializedEntity &Entity,
-                                        MultiExprArg Args,
-                                        const InitializationSequence::Step& Step,
-                                        QualType *ResultType) {
-  InitListExpr *Result = new (S.Context) InitListExpr(
-      S.Context, Args.front()->getBeginLoc(), None, Args.back()->getEndLoc());
-  InitializedEntity IE = InitializedEntity::InitializeElement(
-      S.Context, 0, Entity);
-  bool hadError = false;
-  if (Step.Type->isIncompleteArrayType()) {
-    QualType Ty = S.Context.getConstantArrayType(
-        S.Context.getAsArrayType(Step.Type)->getElementType(),
-        llvm::APInt(32, Args.size()), nullptr, ArrayType::Normal, 0);
-    if (ResultType) {
-      if ((*ResultType)->isRValueReferenceType())
-        *ResultType = S.Context.getRValueReferenceType(Ty);
-      else if ((*ResultType)->isLValueReferenceType())
-        *ResultType = S.Context.getLValueReferenceType(Ty,
-          (*ResultType)->castAs<LValueReferenceType>()->isSpelledAsLValue());
-      else
-        *ResultType = Ty;
-    }
-    Result->setType(Ty);
-  } else if (auto CAT = S.Context.getAsConstantArrayType(Step.Type)) {
-    unsigned NumElements = CAT->getSize().getZExtValue();
-    if (Args.size() > NumElements) {
-      // Diagnose excess initializers: int a[3](1, 2, 3, /*^*/ 4);
-      int initKind = 0; // array
-      S.Diag(Args[NumElements]->getBeginLoc(), diag::err_excess_initializers)
-          << initKind << Args[NumElements]->getSourceRange();
-      hadError = true;
-    } else if (Args.size() < NumElements) {
-      // Ensure that we can value-initialize trailing elements.
-      SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
-      auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
-      MultiExprArg SubInit;
-      IE.setElementIndex(Args.size());
-      InitializationSequence ValueSequence(S, IE, Kind, SubInit);
-      TryValueInitialization(S, IE, Kind, ValueSequence);
-      auto ER = ValueSequence.Perform(S, IE, Kind, SubInit);
-      if (ER.isInvalid()) {
-        SourceLocation Loc = Entity.getDecl()->getEndLoc();
-        S.Diag(Loc, diag::note_in_omitted_aggregate_initializer)
-          << 0 << Args.size();
-        hadError = true;
-      } else {
-        Result->setArrayFiller(ER.get());
-      }
-    }
-    Result->setType(Step.Type);
-  } else {
-    Result->setType(Step.Type);
-  }
-  Result->resizeInits(S.Context, Args.size());
-  for (unsigned Index = 0; Index != Args.size(); ++Index) {
-    IE.setElementIndex(Index);
-    Expr *Init = Args[Index];
-    auto InitResult = S.PerformCopyInitialization(IE, Init->getBeginLoc(), Init);
-    if (InitResult.isInvalid())
-      hadError = true;
-    else
-      Result->setInit(Index, InitResult.getAs<Expr>());
-  }
-  if (hadError) {
-    return ExprError();
-  } else {
-    return Result;
-  }
-}
-
-static ExprResult
-PerformAggregateParenthesizedInitialization(Sema& S,
-                                            const InitializedEntity &Entity,
-                                            MultiExprArg Args,
-                                            const InitializationSequence::Step& Step) {
-  InitListExpr *Result = new (S.Context) InitListExpr(
-      S.Context, Args.front()->getBeginLoc(), None, Args.back()->getEndLoc());
-  Result->setType(Step.Type);
-
-  // Otherwise, if no constructor is viable, the destination type is an aggregate class,
-  // and the initializer is a parenthesized expression-list, the object is initialized
-  // as follows.
-  RecordDecl *RD = Step.Type->castAs<RecordType>()->getDecl();
-  auto Bases =
-      CXXRecordDecl::base_class_range(CXXRecordDecl::base_class_iterator(),
-                                      CXXRecordDecl::base_class_iterator());
-  if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
-    Bases = CXXRD->bases();
-
-  bool hadError = false;
-  unsigned Index = 0;
-  Result->resizeInits(S.Context, size(Bases));
-  for (auto& Base : Bases) {
-    Expr *Init = Index < Args.size() ? Args[Index] : nullptr;
-    InitializedEntity BaseEntity = InitializedEntity::InitializeBase(
-        S.Context, &Base, false, &Entity);
-    if (Init) {
-      // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
-      auto InitResult = S.PerformCopyInitialization(BaseEntity, Init->getBeginLoc(), Init);
-      if (InitResult.isInvalid())
-        hadError = true;
-      else
-        Result->setInit(Index, InitResult.getAs<Expr>());
-    } else {
-      // Bases don't have NSDMIs, so value-init.
-      SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
-      auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
-      MultiExprArg SubInit;
-      InitializationSequence ValueSequence(S, BaseEntity, Kind, SubInit);
-      TryValueInitialization(S, BaseEntity, Kind, ValueSequence);
-      auto ER = ValueSequence.Perform(S, BaseEntity, Kind, SubInit);
-      if (ER.isInvalid()) {
-        S.Diag(Base.getBeginLoc(), diag::note_base_class_specified_here)
-          << Base.getType() << Base.getSourceRange();
-        hadError = true;
-      } else {
-        Result->setInit(Index, ER.get());
-      }
-    }
-    ++Index;
-  }
-  for (auto *Field : RD->fields()) {
-    Expr *Init = Index < Args.size() ? Args[Index] : nullptr;
-    Result->resizeInits(S.Context, Index + 1);
-    InitializedEntity MemberEntity =
-      InitializedEntity::InitializeMember(Field, &Entity);
-    if (Init) {
-      // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
-      auto InitResult = S.PerformCopyInitialization(MemberEntity, Init->getBeginLoc(), Init);
-      if (InitResult.isInvalid())
-        hadError = true;
-      else
-        Result->setInit(Index, InitResult.getAs<Expr>());
-    } else if (Field->hasInClassInitializer()) {
-      // The remaining elements are initialized with their default member initializers,
-      // if any,
-      SourceLocation Loc = Args.back()->getEndLoc();
-      ExprResult DIE = S.BuildCXXDefaultInitExpr(Loc, Field);
-      if (DIE.isInvalid())
-        hadError = true;
-      else
-        Result->setInit(Index, DIE.get());
-    } else {
-      // and otherwise are value-initialized.
-      SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
-      auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
-      MultiExprArg SubInit;
-      InitializationSequence ValueSequence(S, MemberEntity, Kind, SubInit);
-      TryValueInitialization(S, MemberEntity, Kind, ValueSequence);
-      auto ER = ValueSequence.Perform(S, MemberEntity, Kind, SubInit);
-      if (ER.isInvalid()) {
-        S.Diag(Field->getLocation(), diag::note_in_omitted_aggregate_initializer)
-          << 1 << Field;
-        hadError = true;
-      } else {
-        Result->setInit(Index, ER.get());
-      }
-    }
-    ++Index;
-  }
-  if (Index < Args.size()) {
-    int initKind = 4; // struct
-    S.Diag(Args[Index]->getBeginLoc(), diag::err_excess_initializers)
-        << initKind << Args[Index]->getSourceRange();
-    return ExprError();
-  } else if (hadError) {
-    return ExprError();
-  } else {
-    return Result;
-  }
 }
 
 namespace {
@@ -9113,13 +9128,13 @@ ExprResult InitializationSequence::Perform(Sema &S,
       break;
     }
     case SK_ArrayParenthesizedInit: {
-      CurInit = PerformArrayParenthesizedInitialization(
-          S, Entity, Args, *Step, ResultType);
+      CurInit = TryArrayParenthesizedInitialization(
+          S, Entity, Args, Step->Type, ResultType, false);
       break;
     }
     case SK_AggregateParenthesizedInit: {
-      CurInit = PerformAggregateParenthesizedInitialization(
-          S, Entity, Args, *Step);
+      CurInit = TryAggregateParenthesizedInitialization(
+          S, Entity, Args, Step->Type, false);
       break;
     }
     }
