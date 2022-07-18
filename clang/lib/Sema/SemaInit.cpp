@@ -3966,6 +3966,7 @@ TryArrayParenthesizedInitialization(Sema& S,
   InitializedEntity IE = InitializedEntity::InitializeElement(
       S.Context, 0, Entity);
   bool hadError = false;
+
   llvm::Optional<unsigned> NumElements;
   if (DestType->isIncompleteArrayType()) {
     NumElements = Args.size();
@@ -3992,6 +3993,7 @@ TryArrayParenthesizedInitialization(Sema& S,
       hadError = true;
     }
   }
+
   if (!NumElements || Args.size() < *NumElements) {
     // Ensure that we can value-initialize trailing elements.
     SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
@@ -4000,17 +4002,19 @@ TryArrayParenthesizedInitialization(Sema& S,
     IE.setElementIndex(Args.size());
     InitializationSequence ValueSequence(S, IE, Kind, SubInit);
     TryValueInitialization(S, IE, Kind, ValueSequence);
-    auto ER = ValueSequence.Perform(S, IE, Kind, SubInit);
-    if (ER.isInvalid()) {
-      if (!VerifyOnly)
+    if (ValueSequence.Failed()) {
+      if (!VerifyOnly) {
+        ValueSequence.Diagnose(S, IE, Kind, SubInit);
         S.Diag(Entity.getDecl()->getEndLoc(),
-               diag::note_in_omitted_aggregate_initializer)
-          << 0 << Args.size();
+          diag::note_in_omitted_aggregate_initializer) << 0 << Args.size();
+      }
       hadError = true;
     } else if (Result) {
+      auto ER = ValueSequence.Perform(S, IE, Kind, SubInit);
       Result->setArrayFiller(ER.get());
     }
   }
+
   if (Result) {
     Result->setType(DestType);
     Result->resizeInits(S.Context, Args.size());
@@ -4018,17 +4022,15 @@ TryArrayParenthesizedInitialization(Sema& S,
   for (unsigned Index = 0; Index != Args.size(); ++Index) {
     IE.setElementIndex(Index);
     Expr *Init = Args[Index];
-    auto InitResult = S.PerformCopyInitialization(IE, Init->getBeginLoc(), Init);
+    auto InitResult = VerifyOnly ?
+        ExprResult(!S.CanPerformCopyInitialization(Entity, Init)) :
+        S.PerformCopyInitialization(IE, Init->getBeginLoc(), Init);
     if (InitResult.isInvalid())
       hadError = true;
     else if (Result)
       Result->setInit(Index, InitResult.getAs<Expr>());
   }
-  if (hadError) {
-    return ExprError();
-  } else {
-    return Result;
-  }
+  return hadError ? ExprError() : Result;
 }
 
 static ExprResult
@@ -4042,6 +4044,9 @@ TryAggregateParenthesizedInitialization(Sema& S,
   if (Result)
     Result->setType(DestType);
 
+  bool hadError = false;
+  unsigned Index = 0;
+
   // Otherwise, if no constructor is viable, the destination type is an aggregate class,
   // and the initializer is a parenthesized expression-list, the object is initialized
   // as follows.
@@ -4052,8 +4057,6 @@ TryAggregateParenthesizedInitialization(Sema& S,
   if (auto *CXXRD = dyn_cast<CXXRecordDecl>(RD))
     Bases = CXXRD->bases();
 
-  bool hadError = false;
-  unsigned Index = 0;
   if (Result)
     Result->resizeInits(S.Context, size(Bases));
   for (auto& Base : Bases) {
@@ -4062,30 +4065,35 @@ TryAggregateParenthesizedInitialization(Sema& S,
         S.Context, &Base, false, &Entity);
     if (Init) {
       // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
-      auto InitResult = S.PerformCopyInitialization(BaseEntity, Init->getBeginLoc(), Init);
+      auto InitResult = VerifyOnly ?
+        ExprResult(!S.CanPerformCopyInitialization(BaseEntity, Init)) :
+        S.PerformCopyInitialization(BaseEntity, Init->getBeginLoc(), Init);
       if (InitResult.isInvalid())
         hadError = true;
       else if (Result)
         Result->setInit(Index, InitResult.getAs<Expr>());
     } else {
-      // Bases don't have NSDMIs, so value-init.
+      // Bases don't have NSDMIs, so always value-init.
       SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
       auto Kind = InitializationKind::CreateValue(Loc, Loc, Loc, true);
       MultiExprArg SubInit;
       InitializationSequence ValueSequence(S, BaseEntity, Kind, SubInit);
       TryValueInitialization(S, BaseEntity, Kind, ValueSequence);
-      auto ER = ValueSequence.Perform(S, BaseEntity, Kind, SubInit);
-      if (ER.isInvalid()) {
-        if (!VerifyOnly)
+      if (ValueSequence.Failed()) {
+        if (!VerifyOnly) {
+          ValueSequence.Diagnose(S, BaseEntity, Kind, SubInit);
           S.Diag(Base.getBeginLoc(), diag::note_base_class_specified_here)
             << Base.getType() << Base.getSourceRange();
+        }
         hadError = true;
       } else if (Result) {
+        auto ER = ValueSequence.Perform(S, BaseEntity, Kind, SubInit);
         Result->setInit(Index, ER.get());
       }
     }
     ++Index;
   }
+
   for (auto *Field : RD->fields()) {
     Expr *Init = Index < Args.size() ? Args[Index] : nullptr;
     if (Result)
@@ -4094,7 +4102,9 @@ TryAggregateParenthesizedInitialization(Sema& S,
       InitializedEntity::InitializeMember(Field, &Entity);
     if (Init) {
       // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
-      auto InitResult = S.PerformCopyInitialization(MemberEntity, Init->getBeginLoc(), Init);
+      auto InitResult = VerifyOnly ?
+        ExprResult(!S.CanPerformCopyInitialization(MemberEntity, Init)) :
+        S.PerformCopyInitialization(MemberEntity, Init->getBeginLoc(), Init);
       if (InitResult.isInvalid())
         hadError = true;
       else if (Result)
@@ -4102,12 +4112,22 @@ TryAggregateParenthesizedInitialization(Sema& S,
     } else if (Field->hasInClassInitializer()) {
       // The remaining elements are initialized with their default member initializers,
       // if any,
-      SourceLocation Loc = Args.back()->getEndLoc();
-      ExprResult DIE = S.BuildCXXDefaultInitExpr(Loc, Field);
-      if (DIE.isInvalid())
+      if (VerifyOnly && Field->isInvalidDecl()) {
         hadError = true;
-      else if (Result)
-        Result->setInit(Index, DIE.get());
+      } else {
+        llvm::Optional<Sema::TentativeAnalysisScope> DisableDiag;
+        if (VerifyOnly)
+          DisableDiag.emplace(S);
+        SourceLocation Loc = Args.back()->getEndLoc();
+        ExprResult DIE = S.BuildCXXDefaultInitExpr(Loc, Field);
+        if (DIE.isInvalid())
+          hadError = true;
+        else if (Result)
+          Result->setInit(Index, DIE.get());
+        if (VerifyOnly)
+          // Back out any side effects that could lose suppressed diagnostics.
+          Field->setInvalidDecl(false);
+      }
     } else {
       // and otherwise are value-initialized.
       SourceLocation Loc = Args.back()->getEndLoc().getLocWithOffset(1);
@@ -4115,28 +4135,29 @@ TryAggregateParenthesizedInitialization(Sema& S,
       MultiExprArg SubInit;
       InitializationSequence ValueSequence(S, MemberEntity, Kind, SubInit);
       TryValueInitialization(S, MemberEntity, Kind, ValueSequence);
-      auto ER = ValueSequence.Perform(S, MemberEntity, Kind, SubInit);
-      if (ER.isInvalid()) {
-        if (!VerifyOnly)
+      if (ValueSequence.Failed()) {
+        if (!VerifyOnly) {
+          ValueSequence.Diagnose(S, MemberEntity, Kind, SubInit);
           S.Diag(Field->getLocation(), diag::note_in_omitted_aggregate_initializer)
             << 1 << Field;
+        }
         hadError = true;
       } else if (Result) {
+        auto ER = ValueSequence.Perform(S, MemberEntity, Kind, SubInit);
         Result->setInit(Index, ER.get());
       }
     }
     ++Index;
   }
+
   if (Index < Args.size()) {
     if (!VerifyOnly)
       S.Diag(Args[Index]->getBeginLoc(), diag::err_excess_initializers)
         << /* initKind = */ 4 /* struct */ << Args[Index]->getSourceRange();
-    return ExprError();
-  } else if (hadError) {
-    return ExprError();
-  } else {
-    return Result;
+    hadError = true;
   }
+
+  return hadError ? ExprError() : Result;
 }
 
 /// Determine if the constructor has the signature of a copy or move
