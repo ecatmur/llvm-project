@@ -57,6 +57,8 @@ int *p1 = new int[](1, 2, 3);
 int *p2[2] = new int[2](1, 2, 3);
 #if __cpp_aggregate_paren_init < 201902
 // expected-error@-2{{array 'new' cannot have initialization arguments}}
+#else
+// expected-error@-4{{excess elements in array initializer}}
 #endif
 
 int *p3 = new int[4](1, 2, 3);
@@ -107,7 +109,7 @@ A a2(1, f());               // well-formed, but dangling reference
 // expected-error@-2{{no matching constructor for initialization of 'A'}}
 #endif
 A a3{1.0, 1};               // error: narrowing conversion
-// expected-error@-1{{cannot be narrowed}}
+// expected-error@-1{{type 'double' cannot be narrowed to 'int' in initializer list}}
 // expected-note@-2{{insert an explicit cast to silence this issue}}
 A a4(1.0, 1);               // well-formed, but dangling reference
 #if __cpp_aggregate_paren_init < 201902
@@ -230,10 +232,10 @@ static_assert(not std::is_constructible_v<D, B>);
 static_assert(std::is_constructible_v<D, B, int, int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(std::is_constructible_v<F<char const*>>);
 static_assert(std::is_constructible_v<F<char const*>, char const*> == (__cpp_aggregate_paren_init >= 201902));
-static_assert((not std::is_constructible_v<F<int>>) == (__cpp_aggregate_paren_init >= 201902)); // ???
+static_assert(not std::is_constructible_v<F<int>>);
 static_assert(std::is_constructible_v<F<int>, int> == (__cpp_aggregate_paren_init >= 201902));
 
-static_assert(std::is_constructible_v<int[2]> == (__cpp_aggregate_paren_init >= 201902)); // ???
+static_assert(std::is_constructible_v<int[2]>);
 static_assert(std::is_constructible_v<int[2], int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(std::is_constructible_v<int[2], int, int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(not std::is_constructible_v<int[2], int, int, int>);

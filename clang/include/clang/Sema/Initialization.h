@@ -1105,6 +1105,12 @@ public:
 
     /// List-copy-initialization chose an explicit constructor.
     FK_ExplicitConstructor,
+
+    /// Array parenthesized initialization failed.
+    FK_ArrayParenthesizedInitFailed,
+
+    /// Aggregate parenthesized initialization failed.
+    FK_AggregateParenthesizedInitFailed,
   };
 
 private:

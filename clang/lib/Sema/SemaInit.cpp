@@ -3580,6 +3580,8 @@ bool InitializationSequence::isAmbiguous() const {
   case FK_PlaceholderType:
   case FK_ExplicitConstructor:
   case FK_AddressOfUnaddressableFunction:
+  case FK_ArrayParenthesizedInitFailed:
+  case FK_AggregateParenthesizedInitFailed:
     return false;
 
   case FK_ReferenceInitOverloadFailed:
@@ -3957,7 +3959,7 @@ static void TryValueInitialization(Sema &S,
 static ExprResult
 TryArrayParenthesizedInitialization(Sema& S,
                                     const InitializedEntity &Entity,
-                                    MultiExprArg Args,
+                                    llvm::ArrayRef<Expr*> Args,
                                     QualType DestType,
                                     QualType *ResultType,
                                     bool VerifyOnly) {
@@ -4023,7 +4025,7 @@ TryArrayParenthesizedInitialization(Sema& S,
     IE.setElementIndex(Index);
     Expr *Init = Args[Index];
     auto InitResult = VerifyOnly ?
-        ExprResult(!S.CanPerformCopyInitialization(Entity, Init)) :
+        ExprResult(!S.CanPerformCopyInitialization(IE, Init)) :
         S.PerformCopyInitialization(IE, Init->getBeginLoc(), Init);
     if (InitResult.isInvalid())
       hadError = true;
@@ -4036,7 +4038,7 @@ TryArrayParenthesizedInitialization(Sema& S,
 static ExprResult
 TryAggregateParenthesizedInitialization(Sema& S,
                                         const InitializedEntity &Entity,
-                                        MultiExprArg Args,
+                                        llvm::ArrayRef<Expr*> Args,
                                         QualType DestType,
                                         bool VerifyOnly) {
   InitListExpr *Result = VerifyOnly ? nullptr : new (S.Context) InitListExpr(
@@ -4403,11 +4405,16 @@ static void TryConstructorInitialization(Sema &S,
   // Otherwise, if no constructor is viable, the destination type is an aggregate
   // class, and the initializer is a parenthesized expression-list, the object is
   // initialized as follows. [...]
-  if (S.getLangOpts().CPlusPlus20 && Result == OR_No_Viable_Function &&
-      DestType->isAggregateType() && Kind.getKind() == InitializationKind::IK_Direct &&
-      !TryAggregateParenthesizedInitialization(
-        S, Entity, Args, DestType, true).isInvalid()) {
-    Sequence.AddAggregateParenthesizedInitStep(DestType);
+  if (S.getLangOpts().CPlusPlus20 &&
+      Result == OR_No_Viable_Function &&
+      DestType->isAggregateType() &&
+      Kind.getKind() == InitializationKind::IK_Direct) {
+    if (!TryAggregateParenthesizedInitialization(
+        S, Entity, Args, DestType, true).isInvalid())
+      Sequence.AddAggregateParenthesizedInitStep(DestType);
+    else
+      Sequence.SetFailed(
+          InitializationSequence::FK_AggregateParenthesizedInitFailed);
     return;
   }
 
@@ -6118,11 +6125,18 @@ void InitializationSequence::InitializeFrom(Sema &S,
 
     // C++20 permits array parenthesized initialization.
     if (S.getLangOpts().CPlusPlus20 &&
-        Kind.getKind() == InitializationKind::IK_Direct &&
-        !TryArrayParenthesizedInitialization(
-          S, Entity, Args, DestType, nullptr, true).isInvalid()) {
-      AddArrayParenthesizedInitStep(DestType);
-      return;
+        Kind.getKind() == InitializationKind::IK_Direct) {
+      if (!TryArrayParenthesizedInitialization(S, Entity, Args, DestType,
+                                               nullptr, true).isInvalid()) {
+        AddArrayParenthesizedInitStep(DestType);
+        return;
+      } else if (Entity.getKind() == InitializedEntity::EK_Member &&
+                 Initializer && isa<InitListExpr>(Initializer)) {
+        ; // fall through to GNU C++ extension below
+      } else {
+        SetFailed(FK_ArrayParenthesizedInitFailed);
+        return;
+      }
     }
 
     // Note: as an GNU C extension, we allow initialization of an
@@ -9756,6 +9770,17 @@ bool InitializationSequence::Diagnose(Sema &S,
            diag::note_explicit_ctor_deduction_guide_here) << false;
     break;
   }
+
+  case FK_ArrayParenthesizedInitFailed: {
+    TryArrayParenthesizedInitialization(S, Entity, Args, DestType, nullptr,
+                                        false);
+    break;
+  }
+
+  case FK_AggregateParenthesizedInitFailed: {
+    TryAggregateParenthesizedInitialization(S, Entity, Args, DestType, false);
+    break;
+  }
   }
 
   PrintInitLocationNote(S, Entity);
@@ -9921,6 +9946,14 @@ void InitializationSequence::dump(raw_ostream &OS) const {
 
     case FK_ExplicitConstructor:
       OS << "list copy initialization chose explicit constructor";
+      break;
+
+    case FK_ArrayParenthesizedInitFailed:
+      OS << "array parenthesized initialization failed";
+      break;
+
+    case FK_AggregateParenthesizedInitFailed:
+      OS << "aggregate parenthesized initialization failed";
       break;
     }
     OS << '\n';
