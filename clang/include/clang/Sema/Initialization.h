@@ -1108,9 +1108,6 @@ public:
 
     /// Array parenthesized initialization failed.
     FK_ArrayParenthesizedInitFailed,
-
-    /// Aggregate parenthesized initialization failed.
-    FK_AggregateParenthesizedInitFailed,
   };
 
 private:
@@ -1211,6 +1208,13 @@ public:
                 const InitializedEntity &Entity,
                 const InitializationKind &Kind,
                 ArrayRef<Expr *> Args);
+
+  /// Add diagnostics for failure in aggregate parenthesis initialization,
+  /// shared between constructor overload and cast diagnostics.
+  void DiagnoseFailedAggregateParenthesizedInitialization(
+      Sema& S,
+      const InitializedEntity &Entity,
+      ArrayRef<Expr *> Args) const;
 
   /// Determine the kind of initialization sequence computed.
   enum SequenceKind getKind() const { return SequenceKind; }

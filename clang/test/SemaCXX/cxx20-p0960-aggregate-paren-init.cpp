@@ -116,11 +116,9 @@ A a5(1.0, std::move(n));    // OK
 #endif
 
 struct B {
-#if __cpp_aggregate_paren_init < 201902
-// expected-note@-2 +{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-3 +{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-4 +{{candidate constructor (the implicit default constructor) not viable}}
-#endif
+// expected-note@-1 +{{candidate constructor (the implicit copy constructor) not viable}}
+// expected-note@-2 +{{candidate constructor (the implicit move constructor) not viable}}
+// expected-note@-3 +{{candidate constructor (the implicit default constructor) not viable}}
   int a;
   int b;
 };
@@ -133,19 +131,15 @@ B b2(1.0);
 #if __cpp_aggregate_paren_init < 201902
 // expected-error@-2{{no matching constructor for initialization of 'B'}}
 #endif
-B b3(1, 2, 3);
-#if __cpp_aggregate_paren_init < 201902
-// expected-error@-2{{no matching constructor for initialization of 'B'}}
-#else
-// expected-error@-4{{excess elements in struct initializer}}
+B b3(1, 2, 3); // expected-error{{no matching constructor for initialization of 'B'}}
+#if __cpp_aggregate_paren_init >= 201902
+// expected-note@-2{{candidate aggregate parenthesis initializer not viable}}
 #endif
 
 struct C {
-#if __cpp_aggregate_paren_init < 201902
-// expected-note@-2 +{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-3 +{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-4 +{{candidate constructor (the implicit default constructor) not viable}}
-#endif
+// expected-note@-1 +{{candidate constructor (the implicit copy constructor) not viable}}
+// expected-note@-2 +{{candidate constructor (the implicit move constructor) not viable}}
+// expected-note@-3 +{{candidate constructor (the implicit default constructor) not viable}}
   int i;
   E e;
 #if __cpp_aggregate_paren_init >= 201902
@@ -153,11 +147,9 @@ struct C {
 #endif
   E f = 10;
 };
-C c1(1);
-#if __cpp_aggregate_paren_init < 201902
-// expected-error@-2{{no matching constructor for initialization of 'C'}}
-#else
-// expected-error@-4{{no matching constructor for initialization of 'E'}}
+C c1(1); // expected-error{{no matching constructor for initialization of 'C'}}
+#if __cpp_aggregate_paren_init >= 201902
+// expected-note@-2{{candidate aggregate parenthesis initializer not viable}}
 #endif
 C c2(1, 2);
 #if __cpp_aggregate_paren_init < 201902
@@ -165,42 +157,53 @@ C c2(1, 2);
 #endif
 
 struct D : B, E {
-#if __cpp_aggregate_paren_init < 201902
-// expected-note@-2 +{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-3 +{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-4 +{{candidate constructor (the implicit default constructor) not viable}}
-#else
-// expected-note@-6{{base class 'E' specified here}}
+// expected-note@-1 +{{candidate constructor (the implicit copy constructor) not viable}}
+// expected-note@-2 +{{candidate constructor (the implicit move constructor) not viable}}
+// expected-note@-3 +{{candidate constructor (the implicit default constructor) not viable}}
+#if __cpp_aggregate_paren_init >= 201902
+// expected-note@-5{{base class 'E' specified here}}
 #endif
   int i;
 };
-D d1(B(1));
+D d1(B(1)); // expected-error{{no matching constructor for initialization of 'D'}}
 #if __cpp_aggregate_paren_init < 201902
 // expected-error@-2{{no matching conversion for functional-style cast from 'int' to 'B'}}
-// expected-error@-3{{no matching constructor for initialization of 'D'}}
 #else
-// expected-error@-5{{no matching constructor for initialization of 'E'}}
+// expected-note@-4{{candidate aggregate parenthesis initializer not viable}}
 #endif
 D d2(B(), 10, 1);
 #if __cpp_aggregate_paren_init < 201902
 // expected-error@-2{{no matching constructor for initialization of 'D'}}
 #endif
 
-template<class T> struct F { T a; T b = "str"; };
+template<class T>
+struct F {
+// expected-note@-1 +{{candidate constructor (the implicit copy constructor) not viable}}
+// expected-note@-2 +{{candidate constructor (the implicit move constructor) not viable}}
+// expected-note@-3 +{{candidate constructor (the implicit default constructor) not viable}}
+// expected-note@-4 {{in instantiation of default member initializer 'F<int>::b' requested here}}
+  T a;
+  T b = "str";
 // expected-error@-1 {{cannot initialize a member subobject of type 'int' with an lvalue of type 'const char[4]'}}
-// expected-note@-2 {{in instantiation of default member initializer 'F<int>::b' requested here}}
-#if __cpp_aggregate_paren_init < 201902
-// expected-note@-4 +{{candidate constructor (the implicit copy constructor) not viable}}
-// expected-note@-5 +{{candidate constructor (the implicit move constructor) not viable}}
-// expected-note@-6 +{{candidate constructor (the implicit default constructor) not viable}}
+#if __cpp_aggregate_paren_init >= 201902
+// expected-note@-3 {{initializing field b with default member initializer}}
 #endif
+};
 F<char const*> f1;
 F<char const*> f2("ok");
 #if __cpp_aggregate_paren_init < 201902
 // expected-error@-2 {{no matching constructor for initialization of 'F<const char *>'}}
 #endif
-F<int> f3; // expected-note {{in evaluation of exception specification for 'F<int>::F' needed here}}
-F<int> f4(10);
+F<char const*> f3("ok", "ok");
+#if __cpp_aggregate_paren_init < 201902
+// expected-error@-2 {{no matching constructor for initialization of 'F<const char *>'}}
+#endif
+F<int> f4; // expected-note {{in evaluation of exception specification for 'F<int>::F' needed here}}
+F<int> f5(10); // expected-error {{no matching constructor for initialization of 'F<int>'}}
+#if __cpp_aggregate_paren_init >= 201902
+// expected-note@-2{{candidate aggregate parenthesis initializer not viable}}
+#endif
+F<int> f6(10, 10);
 #if __cpp_aggregate_paren_init < 201902
 // expected-error@-2 {{no matching constructor for initialization of 'F<int>'}}
 #endif

@@ -4452,7 +4452,8 @@ def select_ovl_candidate_kind : TextSubstitution<
     "function (the implicit copy assignment operator)|"
     "function (the implicit move assignment operator)|"
     "function (the implicit 'operator==' for this 'operator<=>)'|"
-    "inherited constructor}0%select{| template| %2}1">;
+    "inherited constructor|"
+    "aggregate parenthesis initializer}0%select{| template| %2}1">;
 
 def note_ovl_candidate : Note<
     "candidate %sub{select_ovl_candidate_kind}0,1,3"

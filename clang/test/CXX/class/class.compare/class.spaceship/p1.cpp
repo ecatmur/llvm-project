@@ -1,11 +1,11 @@
 // RUN: %clang_cc1 -std=c++2a -verify %s -fcxx-exceptions
 
 namespace std {
-  struct strong_ordering {
-#if __cpp_aggregate_paren_init < 201902
-    // expected-note@-2 6{{candidate}}
-#endif
+  struct strong_ordering { // expected-note 6{{candidate}}
     int n;
+#if __cpp_aggregate_paren_init >= 201902
+    // expected-note@-2 2{{member n declared here}}
+#endif
     constexpr operator int() const { return n; }
     static const strong_ordering less, equal, greater;
   };
@@ -106,10 +106,9 @@ namespace Deletedness {
       Cmp<G1>() <=> Cmp<G1>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}Cmp<{{.*}}G1>' first required here}}j
       // expected-error@#cmp {{value of type 'void' is not contextually convertible to 'bool'}}
       Cmp<G2>() <=> Cmp<G2>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}Cmp<{{.*}}G2>' first required here}}j
-#if __cpp_aggregate_paren_init < 201902
       // expected-error@#cmp {{no matching conversion for static_cast from 'void' to 'std::strong_ordering'}}
-#else
-      // expected-error@#cmp {{static_cast from 'void' to 'std::strong_ordering' is not allowed}}
+#if __cpp_aggregate_paren_init >= 201902
+      // expected-note@#cmp {{candidate aggregate parenthesis initializer not viable}}
 #endif
       Cmp<H>() <=> Cmp<H>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}Cmp<{{.*}}H>' first required here}}j
       0
@@ -141,10 +140,9 @@ namespace Deletedness {
       CmpArray<G1>() <=> CmpArray<G1>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}CmpArray<{{.*}}G1>' first required here}}j
       // expected-error@#cmparray {{value of type 'void' is not contextually convertible to 'bool'}}
       CmpArray<G2>() <=> CmpArray<G2>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}CmpArray<{{.*}}G2>' first required here}}j
-#if __cpp_aggregate_paren_init < 201902
       // expected-error@#cmparray {{no matching conversion for static_cast from 'void' to 'std::strong_ordering'}}
-#else
-      // expected-error@#cmparray {{static_cast from 'void' to 'std::strong_ordering' is not allowed}}
+#if __cpp_aggregate_paren_init >= 201902
+      // expected-note@#cmparray {{candidate aggregate parenthesis initializer not viable}}
 #endif
       CmpArray<H>() <=> CmpArray<H>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}CmpArray<{{.*}}H>' first required here}}j
       0
