@@ -83,6 +83,7 @@ set(files
   __algorithm/ranges_fill.h
   __algorithm/ranges_fill_n.h
   __algorithm/ranges_find.h
+  __algorithm/ranges_find_end.h
   __algorithm/ranges_find_first_of.h
   __algorithm/ranges_find_if.h
   __algorithm/ranges_find_if_not.h
@@ -97,6 +98,7 @@ set(files
   __algorithm/ranges_is_partitioned.h
   __algorithm/ranges_is_sorted.h
   __algorithm/ranges_is_sorted_until.h
+  __algorithm/ranges_iterator_concept.h
   __algorithm/ranges_lexicographical_compare.h
   __algorithm/ranges_lower_bound.h
   __algorithm/ranges_make_heap.h
@@ -129,8 +131,11 @@ set(files
   __algorithm/ranges_reverse.h
   __algorithm/ranges_reverse_copy.h
   __algorithm/ranges_rotate_copy.h
+  __algorithm/ranges_search.h
+  __algorithm/ranges_search_n.h
   __algorithm/ranges_set_difference.h
   __algorithm/ranges_set_intersection.h
+  __algorithm/ranges_set_symmetric_difference.h
   __algorithm/ranges_set_union.h
   __algorithm/ranges_shuffle.h
   __algorithm/ranges_sort.h
@@ -472,10 +477,8 @@ set(files
   __support/android/locale_bionic.h
   __support/fuchsia/xlocale.h
   __support/ibm/gettod_zos.h
-  __support/ibm/limits.h
   __support/ibm/locale_mgmt_zos.h
   __support/ibm/nanosleep.h
-  __support/ibm/support.h
   __support/ibm/xlocale.h
   __support/musl/xlocale.h
   __support/newlib/xlocale.h

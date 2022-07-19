@@ -2329,6 +2329,10 @@ Use instrumentation data for profile-guided optimization
 
 Filename defining the list of functions/files to instrument
 
+.. option:: -fprofile-function-groups=<N>, -fprofile-selected-function-group=<i>
+
+Partition functions into <N> groups and select only functions in group <i> to be instrumented
+
 .. option:: -fprofile-remapping-file=<file>
 
 Use the remappings described in <file> to match the profile data against names in the program
@@ -2642,6 +2646,12 @@ Enable unstable and experimental features
 .. option:: -fuse-cxa-atexit, -fno-use-cxa-atexit
 
 .. option:: -fuse-init-array, -fno-use-init-array
+
+.. option:: -fstrict-flex-arrays=<arg>, -fno-strict-flex-arrays
+
+Control which arrays are considered as flexible arrays members. <arg>
+can be 1 (array of size 0, 1 and undefined are considered) or 2 (array of size 0
+and undefined are considered).
 
 .. option:: -fuse-ld=<arg>
 
@@ -3325,7 +3335,7 @@ Specify bit size of immediate TLS offsets (AArch64 ELF only): 12 (for 4KB) \| 24
 .. option:: -mtune=<arg>
 .. program:: clang
 
-Only supported on X86 and RISC-V. Otherwise accepted for compatibility with GCC.
+Only supported on X86, RISC-V and SystemZ. Otherwise accepted for compatibility with GCC.
 
 .. option:: -mtvos-version-min=<arg>, -mappletvos-version-min=<arg>
 

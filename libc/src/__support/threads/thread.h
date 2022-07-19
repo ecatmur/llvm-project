@@ -81,9 +81,10 @@ struct alignas(STACK_ALIGNMENT) ThreadAttributes {
   //          exits. It will clean up the thread resources once the thread
   //          exits.
   cpp::Atomic<uint32_t> detach_state;
-  void *stack; // Pointer to the thread stack
-  void *tls;
+  void *stack;                   // Pointer to the thread stack
   unsigned long long stack_size; // Size of the stack
+  uintptr_t tls;                 // Address to the thread TLS memory
+  uintptr_t tls_size;            // The size of area pointed to by |tls|.
   unsigned char owned_stack; // Indicates if the thread owns this stack memory
   int tid;
   ThreadStyle style;
@@ -92,10 +93,8 @@ struct alignas(STACK_ALIGNMENT) ThreadAttributes {
 
   constexpr ThreadAttributes()
       : detach_state(uint32_t(DetachState::DETACHED)), stack(nullptr),
-        tls(nullptr), stack_size(0), owned_stack(false), tid(-1),
-        style(ThreadStyle::POSIX), retval(),
-        platform_data(nullptr) {
-  }
+        stack_size(0), tls(0), tls_size(0), owned_stack(false), tid(-1),
+        style(ThreadStyle::POSIX), retval(), platform_data(nullptr) {}
 };
 
 struct Thread {
@@ -163,7 +162,12 @@ struct Thread {
   // NOTE: This function is to be used for testing only. There is no standard
   // which requires exposing it via a public API.
   void wait();
+
+  // Return true if this thread is equal to the other thread.
+  bool operator==(const Thread &other) const;
 };
+
+extern thread_local Thread self;
 
 } // namespace __llvm_libc
 

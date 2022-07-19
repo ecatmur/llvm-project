@@ -161,6 +161,7 @@ SVAL_TEST(GetConstType, R"(
 void foo() {
   int x = 42;
   int *y = nullptr;
+  bool z = true;
 })") {
   SVal X = getByName("x");
   ASSERT_FALSE(X.getType(Context).isNull());
@@ -170,6 +171,10 @@ void foo() {
   ASSERT_FALSE(Y.getType(Context).isNull());
   expectSameSignAndBitWidth(Context.getUIntPtrType(), Y.getType(Context),
                             Context);
+
+  SVal Z = getByName("z");
+  ASSERT_FALSE(Z.getType(Context).isNull());
+  EXPECT_EQ(Context.BoolTy, Z.getType(Context));
 }
 
 SVAL_TEST(GetLocAsIntType, R"(
@@ -314,10 +319,7 @@ void foo(int x) {
   ASSERT_TRUE(LD.has_value());
   auto LDT = LD->getType(Context);
   ASSERT_FALSE(LDT.isNull());
-  const auto *DElaboratedType = dyn_cast<ElaboratedType>(LDT);
-  ASSERT_NE(DElaboratedType, nullptr);
-  const auto *DRecordType =
-      dyn_cast<RecordType>(DElaboratedType->getNamedType());
+  const auto *DRecordType = dyn_cast<RecordType>(LDT);
   ASSERT_NE(DRecordType, nullptr);
   EXPECT_EQ("TestStruct", DRecordType->getDecl()->getName());
 }
