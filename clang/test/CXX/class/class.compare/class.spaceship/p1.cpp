@@ -1,7 +1,10 @@
 // RUN: %clang_cc1 -std=c++2a -verify %s -fcxx-exceptions
 
 namespace std {
-  struct strong_ordering { // expected-note 6{{candidate}}
+  struct strong_ordering {
+#if __cpp_aggregate_paren_init < 201902
+    // expected-note@-2 6{{candidate}}
+#endif
     int n;
     constexpr operator int() const { return n; }
     static const strong_ordering less, equal, greater;
@@ -103,7 +106,11 @@ namespace Deletedness {
       Cmp<G1>() <=> Cmp<G1>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}Cmp<{{.*}}G1>' first required here}}j
       // expected-error@#cmp {{value of type 'void' is not contextually convertible to 'bool'}}
       Cmp<G2>() <=> Cmp<G2>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}Cmp<{{.*}}G2>' first required here}}j
+#if __cpp_aggregate_paren_init < 201902
       // expected-error@#cmp {{no matching conversion for static_cast from 'void' to 'std::strong_ordering'}}
+#else
+      // expected-error@#cmp {{static_cast from 'void' to 'std::strong_ordering' is not allowed}}
+#endif
       Cmp<H>() <=> Cmp<H>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}Cmp<{{.*}}H>' first required here}}j
       0
     );
@@ -134,7 +141,11 @@ namespace Deletedness {
       CmpArray<G1>() <=> CmpArray<G1>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}CmpArray<{{.*}}G1>' first required here}}j
       // expected-error@#cmparray {{value of type 'void' is not contextually convertible to 'bool'}}
       CmpArray<G2>() <=> CmpArray<G2>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}CmpArray<{{.*}}G2>' first required here}}j
+#if __cpp_aggregate_paren_init < 201902
       // expected-error@#cmparray {{no matching conversion for static_cast from 'void' to 'std::strong_ordering'}}
+#else
+      // expected-error@#cmparray {{static_cast from 'void' to 'std::strong_ordering' is not allowed}}
+#endif
       CmpArray<H>() <=> CmpArray<H>(), // expected-note-re {{in defaulted three-way comparison operator for '{{.*}}CmpArray<{{.*}}H>' first required here}}j
       0
     );
