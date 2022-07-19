@@ -1910,7 +1910,8 @@ static bool isLegalArrayNewInitializer(Sema &S,
     return true;
   else if (CXXConstructExpr *CCE = dyn_cast<CXXConstructExpr>(Init))
     return !CCE->isListInitialization() &&
-           CCE->getConstructor()->isDefaultConstructor();
+           (S.getLangOpts().CPlusPlus20 ||
+            CCE->getConstructor()->isDefaultConstructor());
   else if (Style == CXXNewExpr::ListInit) {
     assert(isa<InitListExpr>(Init) &&
            "Shouldn't create list CXXConstructExprs for arrays.");
