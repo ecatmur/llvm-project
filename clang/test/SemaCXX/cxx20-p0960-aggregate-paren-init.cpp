@@ -231,7 +231,7 @@ static_assert(std::is_constructible_v<F<char const*>, char const*> == (__cpp_agg
 static_assert(not std::is_constructible_v<F<int>, int>);
 static_assert(std::is_constructible_v<F<int>, int, int> == (__cpp_aggregate_paren_init >= 201902));
 
-static_assert(std::is_constructible_v<int[2]>); // FIXME, clang bug pre-C++20: new int(a...) is valid for empty a
+static_assert(std::is_constructible_v<int[2]>); // FIXME, clang bug pre-C++20: new A(a...) is valid for empty a
 static_assert(std::is_constructible_v<int[2], int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(std::is_constructible_v<int[2], int, int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(not std::is_constructible_v<int[2], int, int, int>);
