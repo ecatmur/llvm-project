@@ -4007,7 +4007,7 @@ TryArrayParenthesizedInitialization(Sema& S,
     if (ValueSequence.Failed()) {
       if (!VerifyOnly) {
         ValueSequence.Diagnose(S, IE, Kind, SubInit);
-        S.Diag(Entity.getDecl()->getEndLoc(),
+        S.Diag(Args.back()->getEndLoc(),
           diag::note_in_omitted_aggregate_initializer) << 0 << Args.size();
       }
       hadError = true;
