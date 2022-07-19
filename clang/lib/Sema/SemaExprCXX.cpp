@@ -5329,7 +5329,9 @@ static bool evaluateTypeTrait(Sema &S, TypeTrait Kind, SourceLocation KWLoc,
 
     // Make sure the first argument is not incomplete nor a function type.
     QualType T = Args[0]->getType();
-    if (T->isIncompleteType() || T->isFunctionType())
+    if ((T->isIncompleteType() || T->isFunctionType()) &&
+        !(S.getLangOpts().CPlusPlus20 && T->isIncompleteArrayType() &&
+          Args.size() > 1))
       return false;
 
     // Make sure the first argument is not an abstract type.
