@@ -14,13 +14,8 @@
 namespace std { template <class T> T &&move(T &); }
 // definitions for std::is_constructible
 namespace std {
-template<class T, class... A> constexpr bool is_constructible_impl(...) { return false; }
 template<class T, class... A>
-constexpr bool is_constructible_impl(decltype(new T(*(A*) nullptr...))) { return true; }
-template<class T, class... A>
-struct is_constructible { static constexpr bool value = is_constructible_impl<T, A...>(0); };
-template<class T, class... A>
-inline constexpr bool is_constructible_v = is_constructible<T, A...>::value;
+inline constexpr bool is_constructible_v = __is_constructible(T, A...);
 }
 
 int i1[](1, 2, 3);
@@ -235,6 +230,7 @@ static_assert(std::is_constructible_v<int[2]>);
 static_assert(std::is_constructible_v<int[2], int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(std::is_constructible_v<int[2], int, int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(not std::is_constructible_v<int[2], int, int, int>);
+static_assert(not std::is_constructible_v<int[]>);
 static_assert(std::is_constructible_v<int[], int, int> == (__cpp_aggregate_paren_init >= 201902));
 static_assert(not std::is_constructible_v<E[2], int>);
 static_assert(std::is_constructible_v<int[2], int, int> == (__cpp_aggregate_paren_init >= 201902));
