@@ -1670,8 +1670,8 @@ SDValue SITargetLowering::getLDSKernelId(SelectionDAG &DAG,
   Function &F = DAG.getMachineFunction().getFunction();
   Optional<uint32_t> KnownSize =
       AMDGPUMachineFunction::getLDSKernelIdMetadata(F);
-  if (KnownSize.hasValue())
-    return DAG.getConstant(KnownSize.getValue(), SL, MVT::i32);
+  if (KnownSize.has_value())
+    return DAG.getConstant(KnownSize.value(), SL, MVT::i32);
   return SDValue();
 }
 
@@ -2132,7 +2132,8 @@ void SITargetLowering::allocateSystemSGPRs(CCState &CCInfo,
                                            SIMachineFunctionInfo &Info,
                                            CallingConv::ID CallConv,
                                            bool IsShader) const {
-  if (Subtarget->hasUserSGPRInit16Bug()) {
+  if (Subtarget->hasUserSGPRInit16Bug() && !IsShader) {
+    // Note: user SGPRs are handled by the front-end for graphics shaders
     // Pad up the used user SGPRs with dead inputs.
     unsigned CurrentUserSGPRs = Info.getNumUserSGPRs();
 
@@ -2195,7 +2196,8 @@ void SITargetLowering::allocateSystemSGPRs(CCState &CCInfo,
     CCInfo.AllocateReg(PrivateSegmentWaveByteOffsetReg);
   }
 
-  assert(!Subtarget->hasUserSGPRInit16Bug() || Info.getNumPreloadedSGPRs() >= 16);
+  assert(!Subtarget->hasUserSGPRInit16Bug() || IsShader ||
+         Info.getNumPreloadedSGPRs() >= 16);
 }
 
 static void reservePrivateMemoryRegs(const TargetMachine &TM,
@@ -2821,8 +2823,8 @@ void SITargetLowering::passSpecialInputs(
       InputReg = getImplicitArgPtr(DAG, DL);
     } else if (InputID == AMDGPUFunctionArgInfo::LDS_KERNEL_ID) {
       Optional<uint32_t> Id = AMDGPUMachineFunction::getLDSKernelIdMetadata(F);
-      if (Id.hasValue()) {
-        InputReg = DAG.getConstant(Id.getValue(), DL, ArgVT);
+      if (Id.has_value()) {
+        InputReg = DAG.getConstant(Id.value(), DL, ArgVT);
       } else {
         InputReg = DAG.getUNDEF(ArgVT);
       }
