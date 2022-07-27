@@ -11012,8 +11012,10 @@ ScalarEvolution::isLoopBackedgeGuardedByCond(const Loop *L,
                                              ICmpInst::Predicate Pred,
                                              const SCEV *LHS, const SCEV *RHS) {
   // Interpret a null as meaning no loop, where there is obviously no guard
-  // (interprocedural conditions notwithstanding).
-  if (!L) return true;
+  // (interprocedural conditions notwithstanding). Do not bother about
+  // unreachable loops.
+  if (!L || !DT.isReachableFromEntry(L->getHeader()))
+    return true;
 
   if (VerifyIR)
     assert(!verifyFunction(*L->getHeader()->getParent(), &dbgs()) &&
@@ -11070,12 +11072,6 @@ ScalarEvolution::isLoopBackedgeGuardedByCond(const Loop *L,
       return true;
   }
 
-  // If the loop is not reachable from the entry block, we risk running into an
-  // infinite loop as we walk up into the dom tree.  These loops do not matter
-  // anyway, so we just return a conservative answer when we see them.
-  if (!DT.isReachableFromEntry(L->getHeader()))
-    return false;
-
   if (isImpliedViaGuard(Latch, Pred, LHS, RHS))
     return true;
 
@@ -11121,6 +11117,9 @@ bool ScalarEvolution::isBasicBlockEntryGuardedByCond(const BasicBlock *BB,
                                                      ICmpInst::Predicate Pred,
                                                      const SCEV *LHS,
                                                      const SCEV *RHS) {
+  // Do not bother proving facts for unreachable code.
+  if (!DT.isReachableFromEntry(BB))
+    return true;
   if (VerifyIR)
     assert(!verifyFunction(*BB->getParent(), &dbgs()) &&
            "This cannot be done on broken IR!");
@@ -11154,20 +11153,6 @@ bool ScalarEvolution::isBasicBlockEntryGuardedByCond(const BasicBlock *BB,
       return true;
   }
 
-  // Try to prove (Pred, LHS, RHS) using isImpliedViaGuard.
-  auto ProveViaGuard = [&](const BasicBlock *Block) {
-    if (isImpliedViaGuard(Block, Pred, LHS, RHS))
-      return true;
-    if (ProvingStrictComparison) {
-      auto ProofFn = [&](ICmpInst::Predicate P) {
-        return isImpliedViaGuard(Block, P, LHS, RHS);
-      };
-      if (SplitAndProve(ProofFn))
-        return true;
-    }
-    return false;
-  };
-
   // Try to prove (Pred, LHS, RHS) using isImpliedCond.
   auto ProveViaCond = [&](const Value *Condition, bool Inverse) {
     const Instruction *CtxI = &BB->front();
@@ -11194,9 +11179,6 @@ bool ScalarEvolution::isBasicBlockEntryGuardedByCond(const BasicBlock *BB,
     PredBB = BB->getSinglePredecessor();
   for (std::pair<const BasicBlock *, const BasicBlock *> Pair(PredBB, BB);
        Pair.first; Pair = getPredecessorWithUniqueSuccessorForBB(Pair.first)) {
-    if (ProveViaGuard(Pair.first))
-      return true;
-
     const BranchInst *BlockEntryPredicate =
         dyn_cast<BranchInst>(Pair.first->getTerminator());
     if (!BlockEntryPredicate || BlockEntryPredicate->isUnconditional())
@@ -11219,6 +11201,15 @@ bool ScalarEvolution::isBasicBlockEntryGuardedByCond(const BasicBlock *BB,
       return true;
   }
 
+  // Check conditions due to any @llvm.experimental.guard intrinsics.
+  auto *GuardDecl = F.getParent()->getFunction(
+      Intrinsic::getName(Intrinsic::experimental_guard));
+  if (GuardDecl)
+    for (const auto *GU : GuardDecl->users())
+      if (const auto *Guard = dyn_cast<IntrinsicInst>(GU))
+        if (Guard->getFunction() == BB->getParent() && DT.dominates(Guard, BB))
+          if (ProveViaCond(Guard->getArgOperand(0), false))
+            return true;
   return false;
 }
 
