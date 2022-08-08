@@ -19,7 +19,6 @@
 #include "mlir/Dialect/SPIRV/IR/SPIRVTypes.h"
 #include "mlir/Dialect/SPIRV/IR/TargetAndABI.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/FunctionImplementation.h"
 #include "mlir/IR/OpDefinition.h"
@@ -31,6 +30,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/bit.h"
+#include <numeric>
 
 using namespace mlir;
 
@@ -1618,66 +1618,64 @@ LogicalResult spirv::BranchConditionalOp::verify() {
 // spv.CompositeConstruct
 //===----------------------------------------------------------------------===//
 
-ParseResult spirv::CompositeConstructOp::parse(OpAsmParser &parser,
-                                               OperationState &state) {
-  SmallVector<OpAsmParser::UnresolvedOperand, 4> operands;
-  Type type;
-  auto loc = parser.getCurrentLocation();
-
-  if (parser.parseOperandList(operands) || parser.parseColonType(type)) {
-    return failure();
-  }
-  auto cType = type.dyn_cast<spirv::CompositeType>();
-  if (!cType) {
-    return parser.emitError(
-               loc, "result type must be a composite type, but provided ")
-           << type;
-  }
-
-  if (cType.hasCompileTimeKnownNumElements() &&
-      operands.size() != cType.getNumElements()) {
-    return parser.emitError(loc, "has incorrect number of operands: expected ")
-           << cType.getNumElements() << ", but provided " << operands.size();
-  }
-  // TODO: Add support for constructing a vector type from the vector operands.
-  // According to the spec: "for constructing a vector, the operands may
-  // also be vectors with the same component type as the Result Type component
-  // type".
-  SmallVector<Type, 4> elementTypes;
-  elementTypes.reserve(operands.size());
-  for (auto index : llvm::seq<uint32_t>(0, operands.size())) {
-    elementTypes.push_back(cType.getElementType(index));
-  }
-  state.addTypes(type);
-  return parser.resolveOperands(operands, elementTypes, loc, state.operands);
-}
-
-void spirv::CompositeConstructOp::print(OpAsmPrinter &printer) {
-  printer << " " << constituents() << " : " << getResult().getType();
-}
-
 LogicalResult spirv::CompositeConstructOp::verify() {
   auto cType = getType().cast<spirv::CompositeType>();
   operand_range constituents = this->constituents();
 
-  if (cType.isa<spirv::CooperativeMatrixNVType>()) {
+  if (auto coopType = cType.dyn_cast<spirv::CooperativeMatrixNVType>()) {
     if (constituents.size() != 1)
-      return emitError("has incorrect number of operands: expected ")
+      return emitOpError("has incorrect number of operands: expected ")
              << "1, but provided " << constituents.size();
-  } else if (constituents.size() != cType.getNumElements()) {
-    return emitError("has incorrect number of operands: expected ")
-           << cType.getNumElements() << ", but provided "
-           << constituents.size();
+    if (coopType.getElementType() != constituents.front().getType())
+      return emitOpError("operand type mismatch: expected operand type ")
+             << coopType.getElementType() << ", but provided "
+             << constituents.front().getType();
+    return success();
   }
 
-  for (auto index : llvm::seq<uint32_t>(0, constituents.size())) {
-    if (constituents[index].getType() != cType.getElementType(index)) {
-      return emitError("operand type mismatch: expected operand type ")
-             << cType.getElementType(index) << ", but provided "
-             << constituents[index].getType();
+  if (constituents.size() == cType.getNumElements()) {
+    for (auto index : llvm::seq<uint32_t>(0, constituents.size())) {
+      if (constituents[index].getType() != cType.getElementType(index)) {
+        return emitOpError("operand type mismatch: expected operand type ")
+               << cType.getElementType(index) << ", but provided "
+               << constituents[index].getType();
+      }
     }
+    return success();
   }
 
+  // If not constructing a cooperative matrix type, then we must be constructing
+  // a vector type.
+  auto resultType = cType.dyn_cast<VectorType>();
+  if (!resultType)
+    return emitOpError(
+        "expected to return a vector or cooperative matrix when the number of "
+        "constituents is less than what the result needs");
+
+  SmallVector<unsigned> sizes;
+  for (Value component : constituents) {
+    if (!component.getType().isa<VectorType>() &&
+        !component.getType().isIntOrFloat())
+      return emitOpError("operand type mismatch: expected operand to have "
+                         "a scalar or vector type, but provided ")
+             << component.getType();
+
+    Type elementType = component.getType();
+    if (auto vectorType = component.getType().dyn_cast<VectorType>()) {
+      sizes.push_back(vectorType.getNumElements());
+      elementType = vectorType.getElementType();
+    } else {
+      sizes.push_back(1);
+    }
+
+    if (elementType != resultType.getElementType())
+      return emitOpError("operand element type mismatch: expected to be ")
+             << resultType.getElementType() << ", but provided " << elementType;
+  }
+  unsigned totalCount = std::accumulate(sizes.begin(), sizes.end(), 0);
+  if (totalCount != cType.getNumElements())
+    return emitOpError("has incorrect number of operands: expected ")
+           << cType.getNumElements() << ", but provided " << totalCount;
   return success();
 }
 
@@ -1804,7 +1802,9 @@ ParseResult spirv::ConstantOp::parse(OpAsmParser &parser,
   if (parser.parseAttribute(value, kValueAttrName, state.attributes))
     return failure();
 
-  Type type = value.getType();
+  Type type = NoneType::get(parser.getContext());
+  if (auto typedAttr = value.dyn_cast<TypedAttr>())
+    type = typedAttr.getType();
   if (type.isa<NoneType, TensorType>()) {
     if (parser.parseColonType(type))
       return failure();
@@ -1821,15 +1821,15 @@ void spirv::ConstantOp::print(OpAsmPrinter &printer) {
 
 static LogicalResult verifyConstantType(spirv::ConstantOp op, Attribute value,
                                         Type opType) {
-  auto valueType = value.getType();
-
   if (value.isa<IntegerAttr, FloatAttr>()) {
+    auto valueType = value.cast<TypedAttr>().getType();
     if (valueType != opType)
       return op.emitOpError("result type (")
              << opType << ") does not match value type (" << valueType << ")";
     return success();
   }
   if (value.isa<DenseIntOrFPElementsAttr, SparseElementsAttr>()) {
+    auto valueType = value.cast<TypedAttr>().getType();
     if (valueType == opType)
       return success();
     auto arrayType = opType.dyn_cast<spirv::ArrayType>();
@@ -1874,7 +1874,7 @@ static LogicalResult verifyConstantType(spirv::ConstantOp op, Attribute value,
     }
     return success();
   }
-  return op.emitOpError("cannot have value of type ") << valueType;
+  return op.emitOpError("cannot have attribute: ") << value;
 }
 
 LogicalResult spirv::ConstantOp::verify() {
@@ -2236,7 +2236,7 @@ ParseResult spirv::FuncOp::parse(OpAsmParser &parser, OperationState &state) {
   // Parse the optional function body.
   auto *body = state.addRegion();
   OptionalParseResult result = parser.parseOptionalRegion(*body, entryArgs);
-  return failure(result.hasValue() && failed(*result));
+  return failure(result.has_value() && failed(*result));
 }
 
 void spirv::FuncOp::print(OpAsmPrinter &printer) {
@@ -2840,6 +2840,55 @@ void spirv::GroupNonUniformUMinOp::print(OpAsmPrinter &p) {
 }
 
 //===----------------------------------------------------------------------===//
+// spv.IAddCarryOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult spirv::IAddCarryOp::verify() {
+  auto resultType = getType().cast<spirv::StructType>();
+  if (resultType.getNumElements() != 2)
+    return emitOpError("expected result struct type containing two members");
+
+  if (!llvm::is_splat(llvm::makeArrayRef(
+          {operand1().getType(), operand2().getType(),
+           resultType.getElementType(0), resultType.getElementType(1)})))
+    return emitOpError(
+        "expected all operand types and struct member types are the same");
+
+  return success();
+}
+
+ParseResult spirv::IAddCarryOp::parse(OpAsmParser &parser,
+                                      OperationState &result) {
+  SmallVector<OpAsmParser::UnresolvedOperand, 2> operands;
+  if (parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseOperandList(operands) || parser.parseColon())
+    return failure();
+
+  Type resultType;
+  SMLoc loc = parser.getCurrentLocation();
+  if (parser.parseType(resultType))
+    return failure();
+
+  auto structType = resultType.dyn_cast<spirv::StructType>();
+  if (!structType || structType.getNumElements() != 2)
+    return parser.emitError(loc, "expected spv.struct type with two members");
+
+  SmallVector<Type, 2> operandTypes(2, structType.getElementType(0));
+  if (parser.resolveOperands(operands, operandTypes, loc, result.operands))
+    return failure();
+
+  result.addTypes(resultType);
+  return success();
+}
+
+void spirv::IAddCarryOp::print(OpAsmPrinter &printer) {
+  printer << ' ';
+  printer.printOptionalAttrDict((*this)->getAttrs());
+  printer.printOperands((*this)->getOperands());
+  printer << " : " << getType();
+}
+
+//===----------------------------------------------------------------------===//
 // spv.ISubBorrowOp
 //===----------------------------------------------------------------------===//
 
@@ -2848,12 +2897,9 @@ LogicalResult spirv::ISubBorrowOp::verify() {
   if (resultType.getNumElements() != 2)
     return emitOpError("expected result struct type containing two members");
 
-  SmallVector<Type, 4> types;
-  types.push_back(operand1().getType());
-  types.push_back(operand2().getType());
-  types.push_back(resultType.getElementType(0));
-  types.push_back(resultType.getElementType(1));
-  if (!llvm::is_splat(types))
+  if (!llvm::is_splat(llvm::makeArrayRef(
+          {operand1().getType(), operand2().getType(),
+           resultType.getElementType(0), resultType.getElementType(1)})))
     return emitOpError(
         "expected all operand types and struct member types are the same");
 
@@ -2861,9 +2907,9 @@ LogicalResult spirv::ISubBorrowOp::verify() {
 }
 
 ParseResult spirv::ISubBorrowOp::parse(OpAsmParser &parser,
-                                       OperationState &state) {
+                                       OperationState &result) {
   SmallVector<OpAsmParser::UnresolvedOperand, 2> operands;
-  if (parser.parseOptionalAttrDict(state.attributes) ||
+  if (parser.parseOptionalAttrDict(result.attributes) ||
       parser.parseOperandList(operands) || parser.parseColon())
     return failure();
 
@@ -2877,10 +2923,10 @@ ParseResult spirv::ISubBorrowOp::parse(OpAsmParser &parser,
     return parser.emitError(loc, "expected spv.struct type with two members");
 
   SmallVector<Type, 2> operandTypes(2, structType.getElementType(0));
-  if (parser.resolveOperands(operands, operandTypes, loc, state.operands))
+  if (parser.resolveOperands(operands, operandTypes, loc, result.operands))
     return failure();
 
-  state.addTypes(resultType);
+  result.addTypes(resultType);
   return success();
 }
 
