@@ -486,8 +486,7 @@ static bool tryDiagnoseOverloadedCast(Sema &S, CastType CT,
                                        << src->getSourceRange()),
       S, howManyCandidates, src);
 
-  if (S.getLangOpts().CPlusPlus20 &&
-      destType->isAggregateType())
+  if (S.getLangOpts().CPlusPlus20 && destType->isAggregateType())
     sequence.DiagnoseFailedAggregateParenthesizedInitialization(S, entity, src);
 
   return true;

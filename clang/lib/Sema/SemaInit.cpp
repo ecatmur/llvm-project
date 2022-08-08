@@ -3949,8 +3949,7 @@ static bool TryInitializerListConstruction(Sema &S,
   return true;
 }
 
-static void TryValueInitialization(Sema &S,
-                                   const InitializedEntity &Entity,
+static void TryValueInitialization(Sema &S, const InitializedEntity &Entity,
                                    const InitializationKind &Kind,
                                    InitializationSequence &Sequence,
                                    InitListExpr *InitList = nullptr);
@@ -3961,20 +3960,16 @@ enum AggregateParenInitKind {
   APIK_Perform,
 };
 
-static ExprResult
-TryArrayParenthesizedInitialization(Sema& S,
-                                    const InitializedEntity &Entity,
-                                    llvm::ArrayRef<Expr*> Args,
-                                    QualType DestType,
-                                    QualType *ResultType,
-                                    AggregateParenInitKind APIK) {
+static ExprResult TryArrayParenthesizedInitialization(
+    Sema &S, const InitializedEntity &Entity, llvm::ArrayRef<Expr *> Args,
+    QualType DestType, QualType *ResultType, AggregateParenInitKind APIK) {
   InitListExpr *Result = nullptr;
   bool Invalid = false;
   if (APIK == APIK_Perform)
     Result = new (S.Context) InitListExpr(
-      S.Context, Args.front()->getBeginLoc(), None, Args.back()->getEndLoc());
-  InitializedEntity IE = InitializedEntity::InitializeElement(
-      S.Context, 0, Entity);
+        S.Context, Args.front()->getBeginLoc(), None, Args.back()->getEndLoc());
+  InitializedEntity IE =
+      InitializedEntity::InitializeElement(S.Context, 0, Entity);
 
   llvm::Optional<unsigned> NumElements;
   if (DestType->isIncompleteArrayType()) {
@@ -3986,8 +3981,9 @@ TryArrayParenthesizedInitialization(Sema& S,
       if ((*ResultType)->isRValueReferenceType())
         *ResultType = S.Context.getRValueReferenceType(DestType);
       else if ((*ResultType)->isLValueReferenceType())
-        *ResultType = S.Context.getLValueReferenceType(DestType,
-          (*ResultType)->castAs<LValueReferenceType>()->isSpelledAsLValue());
+        *ResultType = S.Context.getLValueReferenceType(
+            DestType,
+            (*ResultType)->castAs<LValueReferenceType>()->isSpelledAsLValue());
       else
         *ResultType = DestType;
     }
@@ -4016,7 +4012,7 @@ TryArrayParenthesizedInitialization(Sema& S,
         return ExprError();
       ValueSequence.Diagnose(S, IE, Kind, SubInit);
       S.Diag(Loc, diag::note_in_omitted_aggregate_initializer)
-        << 0 << Args.size();
+          << 0 << Args.size();
       Invalid = true;
     } else if (Result) {
       auto ER = ValueSequence.Perform(S, IE, Kind, SubInit);
@@ -4035,7 +4031,8 @@ TryArrayParenthesizedInitialization(Sema& S,
       if (!S.CanPerformCopyInitialization(IE, Init))
         return ExprError();
     } else {
-      auto InitResult = S.PerformCopyInitialization(IE, Init->getBeginLoc(), Init);
+      auto InitResult =
+          S.PerformCopyInitialization(IE, Init->getBeginLoc(), Init);
       if (InitResult.isInvalid())
         Invalid = true;
       else if (Result)
@@ -4046,12 +4043,9 @@ TryArrayParenthesizedInitialization(Sema& S,
   return Invalid ? ExprError() : Result;
 }
 
-static ExprResult
-TryAggregateParenthesizedInitialization(Sema& S,
-                                        const InitializedEntity &Entity,
-                                        llvm::ArrayRef<Expr*> Args,
-                                        QualType DestType,
-                                        AggregateParenInitKind APIK) {
+static ExprResult TryAggregateParenthesizedInitialization(
+    Sema &S, const InitializedEntity &Entity, llvm::ArrayRef<Expr *> Args,
+    QualType DestType, AggregateParenInitKind APIK) {
   InitListExpr *Result = nullptr;
   bool Invalid = false;
   if (APIK == APIK_Perform) {
@@ -4060,9 +4054,9 @@ TryAggregateParenthesizedInitialization(Sema& S,
     Result->setType(DestType);
   }
 
-  // Otherwise, if no constructor is viable, the destination type is an aggregate class,
-  // and the initializer is a parenthesized expression-list, the object is initialized
-  // as follows.
+  // Otherwise, if no constructor is viable, the destination type is an
+  // aggregate class, and the initializer is a parenthesized expression-list,
+  // the object is initialized as follows.
   RecordDecl *RD = DestType->castAs<RecordType>()->getDecl();
   auto Bases =
       CXXRecordDecl::base_class_range(CXXRecordDecl::base_class_iterator(),
@@ -4073,14 +4067,14 @@ TryAggregateParenthesizedInitialization(Sema& S,
   unsigned Index = 0;
   if (Result)
     Result->resizeInits(S.Context, size(Bases));
-  for (auto& Base : Bases) {
+  for (auto &Base : Bases) {
     Expr *Init = Index < Args.size() ? Args[Index] : nullptr;
-    InitializedEntity BaseEntity = InitializedEntity::InitializeBase(
-        S.Context, &Base, false, &Entity);
+    InitializedEntity BaseEntity =
+        InitializedEntity::InitializeBase(S.Context, &Base, false, &Entity);
     if (Init) {
       // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
       if (Result) {
-        auto InitResult = 
+        auto InitResult =
             S.PerformCopyInitialization(BaseEntity, Init->getBeginLoc(), Init);
         if (InitResult.isInvalid())
           Invalid = true;
@@ -4090,10 +4084,10 @@ TryAggregateParenthesizedInitialization(Sema& S,
         if (APIK == APIK_Verify)
           return ExprError();
         S.Diag(Init->getBeginLoc(), diag::note_ovl_candidate_bad_conv)
-          << 11 << 0 << "" << Init->getType() << BaseEntity.getType()
-          << 0 << Index + 1 << 0 << Init->getSourceRange();
+            << 11 << 0 << "" << Init->getType() << BaseEntity.getType() << 0
+            << Index + 1 << 0 << Init->getSourceRange();
         S.Diag(Base.getBeginLoc(), diag::note_base_class_specified_here)
-          << BaseEntity.getType() << Base.getSourceRange();
+            << BaseEntity.getType() << Base.getSourceRange();
         Invalid = true;
       }
     } else {
@@ -4107,9 +4101,9 @@ TryAggregateParenthesizedInitialization(Sema& S,
         if (APIK == APIK_Verify)
           return ExprError();
         S.Diag(Args.back()->getEndLoc(), diag::note_ovl_candidate_arity)
-          << 11 << 0 << "" << 0 << Index + 1 << Args.size();
+            << 11 << 0 << "" << 0 << Index + 1 << Args.size();
         S.Diag(Base.getBeginLoc(), diag::note_base_class_specified_here)
-          << BaseEntity.getType() << Base.getSourceRange();
+            << BaseEntity.getType() << Base.getSourceRange();
         Invalid = true;
       } else if (Result) {
         auto ER = ValueSequence.Perform(S, BaseEntity, Kind, SubInit);
@@ -4124,12 +4118,12 @@ TryAggregateParenthesizedInitialization(Sema& S,
     if (Result)
       Result->resizeInits(S.Context, Index + 1);
     InitializedEntity MemberEntity =
-      InitializedEntity::InitializeMember(Field, &Entity);
+        InitializedEntity::InitializeMember(Field, &Entity);
     if (Init) {
       // The element e_i is copy-initialized with x_i for 1 ≤ i ≤ k.
       if (Result) {
-        auto InitResult =
-            S.PerformCopyInitialization(MemberEntity, Init->getBeginLoc(), Init);
+        auto InitResult = S.PerformCopyInitialization(
+            MemberEntity, Init->getBeginLoc(), Init);
         if (InitResult.isInvalid())
           Invalid = true;
         else
@@ -4138,15 +4132,15 @@ TryAggregateParenthesizedInitialization(Sema& S,
         if (APIK == APIK_Verify)
           return ExprError();
         S.Diag(Init->getBeginLoc(), diag::note_ovl_candidate_bad_conv)
-          << 11 << 0 << "" << Init->getType() << MemberEntity.getType()
-          << 0 << Index + 1 << 0 << Init->getSourceRange();
+            << 11 << 0 << "" << Init->getType() << MemberEntity.getType() << 0
+            << Index + 1 << 0 << Init->getSourceRange();
         S.Diag(Field->getBeginLoc(), diag::note_member_declared_here)
-          << Field->getName() << Field->getSourceRange();
+            << Field->getName() << Field->getSourceRange();
         Invalid = true;
       }
     } else if (Field->hasInClassInitializer()) {
-      // The remaining elements are initialized with their default member initializers,
-      // if any,
+      // The remaining elements are initialized with their default member
+      // initializers, if any,
       SourceLocation Loc = Args.back()->getEndLoc();
       ExprResult DIE;
       if (Result) {
@@ -4161,9 +4155,10 @@ TryAggregateParenthesizedInitialization(Sema& S,
         if (APIK == APIK_Verify)
           return ExprError();
         S.Diag(Args.back()->getEndLoc(), diag::note_ovl_candidate_arity)
-          << 11 << 0 << "" << 0 << Index + 1 << Args.size();
-        S.Diag(Field->getBeginLoc(), diag::note_init_with_default_member_initalizer)
-          << Field->getName() << Field->getSourceRange();
+            << 11 << 0 << "" << 0 << Index + 1 << Args.size();
+        S.Diag(Field->getBeginLoc(),
+               diag::note_init_with_default_member_initalizer)
+            << Field->getName() << Field->getSourceRange();
         Invalid = true;
       } else if (Result)
         Result->setInit(Index, DIE.get());
@@ -4178,9 +4173,10 @@ TryAggregateParenthesizedInitialization(Sema& S,
         if (APIK == APIK_Verify)
           return ExprError();
         S.Diag(Args.back()->getEndLoc(), diag::note_ovl_candidate_arity)
-          << 11 << 0 << "" << 0 << Index + 1 << Args.size();
-        S.Diag(Field->getBeginLoc(), diag::note_in_omitted_aggregate_initializer)
-          << 1 << Field << Field->getSourceRange();
+            << 11 << 0 << "" << 0 << Index + 1 << Args.size();
+        S.Diag(Field->getBeginLoc(),
+               diag::note_in_omitted_aggregate_initializer)
+            << 1 << Field << Field->getSourceRange();
         Invalid = true;
       } else if (Result) {
         auto ER = ValueSequence.Perform(S, MemberEntity, Kind, SubInit);
@@ -4194,8 +4190,8 @@ TryAggregateParenthesizedInitialization(Sema& S,
     if (APIK == APIK_Verify)
       return ExprError();
     S.Diag(Args[Index]->getBeginLoc(), diag::note_ovl_candidate_arity)
-      << 11 << 0 << "" << 1 << Index << Args.size()
-      << Args[Index]->getSourceRange();
+        << 11 << 0 << "" << 1 << Index << Args.size()
+        << Args[Index]->getSourceRange();
     Invalid = true;
   }
 
@@ -4442,15 +4438,15 @@ static void TryConstructorInitialization(Sema &S,
   }
 
   // C++20 [dcl.init.general]p16.6.2.2:
-  // Otherwise, if no constructor is viable, the destination type is an aggregate
-  // class, and the initializer is a parenthesized expression-list, the object is
-  // initialized as follows. [...]
-  if (S.getLangOpts().CPlusPlus20 &&
-      Result == OR_No_Viable_Function &&
+  // Otherwise, if no constructor is viable, the destination type is an
+  // aggregate class, and the initializer is a parenthesized expression-list,
+  // the object is initialized as follows. [...]
+  if (S.getLangOpts().CPlusPlus20 && Result == OR_No_Viable_Function &&
       DestType->isAggregateType() &&
       Kind.getKind() == InitializationKind::IK_Direct &&
-      !TryAggregateParenthesizedInitialization(
-          S, Entity, Args, DestType, APIK_Verify).isInvalid()) {
+      !TryAggregateParenthesizedInitialization(S, Entity, Args, DestType,
+                                               APIK_Verify)
+           .isInvalid()) {
     Sequence.AddAggregateParenthesizedInitStep(DestType);
     return;
   }
@@ -6164,7 +6160,8 @@ void InitializationSequence::InitializeFrom(Sema &S,
     if (S.getLangOpts().CPlusPlus20 &&
         Kind.getKind() == InitializationKind::IK_Direct) {
       if (!TryArrayParenthesizedInitialization(S, Entity, Args, DestType,
-                                               nullptr, APIK_Verify).isInvalid()) {
+                                               nullptr, APIK_Verify)
+               .isInvalid()) {
         AddArrayParenthesizedInitStep(DestType);
         return;
       } else if (Entity.getKind() == InitializedEntity::EK_Member &&
@@ -9200,8 +9197,8 @@ ExprResult InitializationSequence::Perform(Sema &S,
       break;
     }
     case SK_ArrayParenthesizedInit: {
-      CurInit = TryArrayParenthesizedInitialization(
-          S, Entity, Args, Step->Type, ResultType, APIK_Perform);
+      CurInit = TryArrayParenthesizedInitialization(S, Entity, Args, Step->Type,
+                                                    ResultType, APIK_Perform);
       break;
     }
     case SK_AggregateParenthesizedInit: {
@@ -9724,11 +9721,9 @@ bool InitializationSequence::Diagnose(Sema &S,
                     << DestType << ArgsRange),
             S, OCD_AllCandidates, Args);
 
-        if (S.getLangOpts().CPlusPlus20 &&
-            DestType->isAggregateType() &&
+        if (S.getLangOpts().CPlusPlus20 && DestType->isAggregateType() &&
             Kind.getKind() == InitializationKind::IK_Direct)
-          DiagnoseFailedAggregateParenthesizedInitialization(
-              S, Entity, Args);
+          DiagnoseFailedAggregateParenthesizedInitialization(S, Entity, Args);
         break;
 
       case OR_Deleted: {
@@ -9816,8 +9811,8 @@ bool InitializationSequence::Diagnose(Sema &S,
   }
 
   case FK_ArrayParenthesizedInitFailed: {
-    TryArrayParenthesizedInitialization(
-        S, Entity, Args, DestType, nullptr, APIK_Diagnose);
+    TryArrayParenthesizedInitialization(S, Entity, Args, DestType, nullptr,
+                                        APIK_Diagnose);
     break;
   }
   }
@@ -9827,11 +9822,9 @@ bool InitializationSequence::Diagnose(Sema &S,
 }
 
 void InitializationSequence::DiagnoseFailedAggregateParenthesizedInitialization(
-    Sema& S,
-    const InitializedEntity &Entity,
-    ArrayRef<Expr *> Args) const {
-  TryAggregateParenthesizedInitialization(
-      S, Entity, Args, Entity.getType(), APIK_Diagnose);
+    Sema &S, const InitializedEntity &Entity, ArrayRef<Expr *> Args) const {
+  TryAggregateParenthesizedInitialization(S, Entity, Args, Entity.getType(),
+                                          APIK_Diagnose);
 }
 
 void InitializationSequence::dump(raw_ostream &OS) const {

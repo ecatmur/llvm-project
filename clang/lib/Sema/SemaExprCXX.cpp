@@ -1906,18 +1906,16 @@ static bool isLegalArrayNewInitializer(Sema &S,
     return true;
   if (ParenListExpr *PLE = dyn_cast<ParenListExpr>(Init))
     return S.getLangOpts().CPlusPlus20 ||
-           llvm::all_of(PLE->exprs(), [](Expr* E) {
-             return isa<PackExpansionExpr>(E);
-           });
+           llvm::all_of(PLE->exprs(),
+                        [](Expr *E) { return isa<PackExpansionExpr>(E); });
   if (isa<ImplicitValueInitExpr>(Init))
     return true;
   else if (CXXConstructExpr *CCE = dyn_cast<CXXConstructExpr>(Init))
     return !CCE->isListInitialization() &&
            (S.getLangOpts().CPlusPlus20 ||
             CCE->getConstructor()->isDefaultConstructor() ||
-            llvm::all_of(CCE->arguments(), [](Expr* E) {
-              return isa<PackExpansionExpr>(E);
-            }));
+            llvm::all_of(CCE->arguments(),
+                         [](Expr *E) { return isa<PackExpansionExpr>(E); }));
   else if (Style == CXXNewExpr::ListInit) {
     assert(isa<InitListExpr>(Init) &&
            "Shouldn't create list CXXConstructExprs for arrays.");

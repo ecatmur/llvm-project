@@ -1212,9 +1212,7 @@ public:
   /// Add diagnostics for failure in aggregate parenthesis initialization,
   /// shared between constructor overload and cast diagnostics.
   void DiagnoseFailedAggregateParenthesizedInitialization(
-      Sema& S,
-      const InitializedEntity &Entity,
-      ArrayRef<Expr *> Args) const;
+      Sema &S, const InitializedEntity &Entity, ArrayRef<Expr *> Args) const;
 
   /// Determine the kind of initialization sequence computed.
   enum SequenceKind getKind() const { return SequenceKind; }
