@@ -2861,7 +2861,7 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase, Class &Lo,
     } else if (k >= BuiltinType::Bool && k <= BuiltinType::LongLong) {
       Current = Integer;
     } else if (k == BuiltinType::Float || k == BuiltinType::Double ||
-               k == BuiltinType::Float16) {
+               k == BuiltinType::Float16 || k == BuiltinType::BFloat16) {
       Current = SSE;
     } else if (k == BuiltinType::LongDouble) {
       const llvm::fltSemantics *LDF = &getTarget().getLongDoubleFormat();
@@ -2992,7 +2992,8 @@ void X86_64ABIInfo::classify(QualType Ty, uint64_t OffsetBase, Class &Lo,
         Current = Integer;
       else if (Size <= 128)
         Lo = Hi = Integer;
-    } else if (ET->isFloat16Type() || ET == getContext().FloatTy) {
+    } else if (ET->isFloat16Type() || ET == getContext().FloatTy ||
+               ET->isBFloat16Type()) {
       Current = SSE;
     } else if (ET == getContext().DoubleTy) {
       Lo = Hi = SSE;
@@ -3464,9 +3465,9 @@ GetSSETypeAtOffset(llvm::Type *IRType, unsigned IROffset,
   if (SourceSize > T0Size)
       T1 = getFPTypeAtOffset(IRType, IROffset + T0Size, TD);
   if (T1 == nullptr) {
-    // Check if IRType is a half + float. float type will be in IROffset+4 due
+    // Check if IRType is a half/bfloat + float. float type will be in IROffset+4 due
     // to its alignment.
-    if (T0->isHalfTy() && SourceSize > 4)
+    if (T0->is16bitFPTy() && SourceSize > 4)
       T1 = getFPTypeAtOffset(IRType, IROffset + 4, TD);
     // If we can't get a second FP type, return a simple half or float.
     // avx512fp16-abi.c:pr51813_2 shows it works to return float for
@@ -3478,7 +3479,7 @@ GetSSETypeAtOffset(llvm::Type *IRType, unsigned IROffset,
   if (T0->isFloatTy() && T1->isFloatTy())
     return llvm::FixedVectorType::get(T0, 2);
 
-  if (T0->isHalfTy() && T1->isHalfTy()) {
+  if (T0->is16bitFPTy() && T1->is16bitFPTy()) {
     llvm::Type *T2 = nullptr;
     if (SourceSize > 4)
       T2 = getFPTypeAtOffset(IRType, IROffset + 4, TD);
@@ -3487,7 +3488,7 @@ GetSSETypeAtOffset(llvm::Type *IRType, unsigned IROffset,
     return llvm::FixedVectorType::get(T0, 4);
   }
 
-  if (T0->isHalfTy() || T1->isHalfTy())
+  if (T0->is16bitFPTy() || T1->is16bitFPTy())
     return llvm::FixedVectorType::get(llvm::Type::getHalfTy(getVMContext()), 4);
 
   return llvm::Type::getDoubleTy(getVMContext());
@@ -11499,6 +11500,92 @@ public:
 } // end anonymous namespace
 
 //===----------------------------------------------------------------------===//
+// BPF ABI Implementation
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+class BPFABIInfo : public DefaultABIInfo {
+public:
+  BPFABIInfo(CodeGenTypes &CGT) : DefaultABIInfo(CGT) {}
+
+  ABIArgInfo classifyArgumentType(QualType Ty) const {
+    Ty = useFirstFieldIfTransparentUnion(Ty);
+
+    if (isAggregateTypeForABI(Ty)) {
+      uint64_t Bits = getContext().getTypeSize(Ty);
+      if (Bits == 0)
+        return ABIArgInfo::getIgnore();
+
+      // If the aggregate needs 1 or 2 registers, do not use reference.
+      if (Bits <= 128) {
+        llvm::Type *CoerceTy;
+        if (Bits <= 64) {
+          CoerceTy =
+              llvm::IntegerType::get(getVMContext(), llvm::alignTo(Bits, 8));
+        } else {
+          llvm::Type *RegTy = llvm::IntegerType::get(getVMContext(), 64);
+          CoerceTy = llvm::ArrayType::get(RegTy, 2);
+        }
+        return ABIArgInfo::getDirect(CoerceTy);
+      } else {
+        return getNaturalAlignIndirect(Ty);
+      }
+    }
+
+    if (const EnumType *EnumTy = Ty->getAs<EnumType>())
+      Ty = EnumTy->getDecl()->getIntegerType();
+
+    ASTContext &Context = getContext();
+    if (const auto *EIT = Ty->getAs<BitIntType>())
+      if (EIT->getNumBits() > Context.getTypeSize(Context.Int128Ty))
+        return getNaturalAlignIndirect(Ty);
+
+    return (isPromotableIntegerTypeForABI(Ty) ? ABIArgInfo::getExtend(Ty)
+                                              : ABIArgInfo::getDirect());
+  }
+
+  ABIArgInfo classifyReturnType(QualType RetTy) const {
+    if (RetTy->isVoidType())
+      return ABIArgInfo::getIgnore();
+
+    if (isAggregateTypeForABI(RetTy))
+      return getNaturalAlignIndirect(RetTy);
+
+    // Treat an enum type as its underlying type.
+    if (const EnumType *EnumTy = RetTy->getAs<EnumType>())
+      RetTy = EnumTy->getDecl()->getIntegerType();
+
+    ASTContext &Context = getContext();
+    if (const auto *EIT = RetTy->getAs<BitIntType>())
+      if (EIT->getNumBits() > Context.getTypeSize(Context.Int128Ty))
+        return getNaturalAlignIndirect(RetTy);
+
+    // Caller will do necessary sign/zero extension.
+    return ABIArgInfo::getDirect();
+  }
+
+  void computeInfo(CGFunctionInfo &FI) const override {
+    FI.getReturnInfo() = classifyReturnType(FI.getReturnType());
+    for (auto &I : FI.arguments())
+      I.info = classifyArgumentType(I.type);
+  }
+
+};
+
+class BPFTargetCodeGenInfo : public TargetCodeGenInfo {
+public:
+  BPFTargetCodeGenInfo(CodeGenTypes &CGT)
+      : TargetCodeGenInfo(std::make_unique<BPFABIInfo>(CGT)) {}
+
+  const BPFABIInfo &getABIInfo() const {
+    return static_cast<const BPFABIInfo&>(TargetCodeGenInfo::getABIInfo());
+  }
+};
+
+}
+
+//===----------------------------------------------------------------------===//
 // Driver code
 //===----------------------------------------------------------------------===//
 
@@ -11726,6 +11813,9 @@ const TargetCodeGenInfo &CodeGenModule::getTargetCodeGenInfo() {
                                                       : hasFP64   ? 64
                                                                   : 32));
   }
+  case llvm::Triple::bpfeb:
+  case llvm::Triple::bpfel:
+    return SetCGInfo(new BPFTargetCodeGenInfo(Types));
   }
 }
 

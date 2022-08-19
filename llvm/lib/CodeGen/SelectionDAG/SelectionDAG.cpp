@@ -291,6 +291,31 @@ bool ISD::isBuildVectorOfConstantFPSDNodes(const SDNode *N) {
   return true;
 }
 
+bool ISD::isVectorShrinkable(const SDNode *N, unsigned NewEltSize,
+                             bool Signed) {
+  if (N->getOpcode() != ISD::BUILD_VECTOR)
+    return false;
+
+  unsigned EltSize = N->getValueType(0).getScalarSizeInBits();
+  if (EltSize <= NewEltSize)
+    return false;
+
+  for (const SDValue &Op : N->op_values()) {
+    if (Op.isUndef())
+      continue;
+    if (!isa<ConstantSDNode>(Op))
+      return false;
+
+    APInt C = cast<ConstantSDNode>(Op)->getAPIntValue().trunc(EltSize);
+    if (Signed && C.trunc(NewEltSize).sext(EltSize) != C)
+      return false;
+    if (!Signed && C.trunc(NewEltSize).zext(EltSize) != C)
+      return false;
+  }
+
+  return true;
+}
+
 bool ISD::allOperandsUndef(const SDNode *N) {
   // Return false if the node has no operands.
   // This is "logically inconsistent" with the definition of "all" but
@@ -298,6 +323,10 @@ bool ISD::allOperandsUndef(const SDNode *N) {
   if (N->getNumOperands() == 0)
     return false;
   return all_of(N->op_values(), [](SDValue Op) { return Op.isUndef(); });
+}
+
+bool ISD::isFreezeUndef(const SDNode *N) {
+  return N->getOpcode() == ISD::FREEZE && N->getOperand(0).isUndef();
 }
 
 bool ISD::matchUnaryPredicate(SDValue Op,
@@ -2381,34 +2410,34 @@ SDValue SelectionDAG::FoldSetCC(EVT VT, SDValue N1, SDValue N2,
     default: break;
     case ISD::SETEQ:  if (R==APFloat::cmpUnordered)
                         return getUNDEF(VT);
-                      LLVM_FALLTHROUGH;
+                      [[fallthrough]];
     case ISD::SETOEQ: return getBoolConstant(R==APFloat::cmpEqual, dl, VT,
                                              OpVT);
     case ISD::SETNE:  if (R==APFloat::cmpUnordered)
                         return getUNDEF(VT);
-                      LLVM_FALLTHROUGH;
+                      [[fallthrough]];
     case ISD::SETONE: return getBoolConstant(R==APFloat::cmpGreaterThan ||
                                              R==APFloat::cmpLessThan, dl, VT,
                                              OpVT);
     case ISD::SETLT:  if (R==APFloat::cmpUnordered)
                         return getUNDEF(VT);
-                      LLVM_FALLTHROUGH;
+                      [[fallthrough]];
     case ISD::SETOLT: return getBoolConstant(R==APFloat::cmpLessThan, dl, VT,
                                              OpVT);
     case ISD::SETGT:  if (R==APFloat::cmpUnordered)
                         return getUNDEF(VT);
-                      LLVM_FALLTHROUGH;
+                      [[fallthrough]];
     case ISD::SETOGT: return getBoolConstant(R==APFloat::cmpGreaterThan, dl,
                                              VT, OpVT);
     case ISD::SETLE:  if (R==APFloat::cmpUnordered)
                         return getUNDEF(VT);
-                      LLVM_FALLTHROUGH;
+                      [[fallthrough]];
     case ISD::SETOLE: return getBoolConstant(R==APFloat::cmpLessThan ||
                                              R==APFloat::cmpEqual, dl, VT,
                                              OpVT);
     case ISD::SETGE:  if (R==APFloat::cmpUnordered)
                         return getUNDEF(VT);
-                      LLVM_FALLTHROUGH;
+                      [[fallthrough]];
     case ISD::SETOGE: return getBoolConstant(R==APFloat::cmpGreaterThan ||
                                          R==APFloat::cmpEqual, dl, VT, OpVT);
     case ISD::SETO:   return getBoolConstant(R!=APFloat::cmpUnordered, dl, VT,
@@ -3495,7 +3524,7 @@ KnownBits SelectionDAG::computeKnownBits(SDValue Op, const APInt &DemandedElts,
         Known.Zero.setBitsFrom(1);
       break;
     }
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::SUB:
   case ISD::SUBC: {
     assert(Op.getResNo() == 0 &&
@@ -3523,7 +3552,7 @@ KnownBits SelectionDAG::computeKnownBits(SDValue Op, const APInt &DemandedElts,
         Known.Zero.setBitsFrom(1);
       break;
     }
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::ADD:
   case ISD::ADDC:
   case ISD::ADDE: {
@@ -3738,7 +3767,7 @@ KnownBits SelectionDAG::computeKnownBits(SDValue Op, const APInt &DemandedElts,
         Known.Zero.setBitsFrom(1);
       break;
     }
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::ATOMIC_CMP_SWAP:
   case ISD::ATOMIC_SWAP:
   case ISD::ATOMIC_LOAD_ADD:
@@ -3771,7 +3800,7 @@ KnownBits SelectionDAG::computeKnownBits(SDValue Op, const APInt &DemandedElts,
   default:
     if (Opcode < ISD::BUILTIN_OP_END)
       break;
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::INTRINSIC_WO_CHAIN:
   case ISD::INTRINSIC_W_CHAIN:
   case ISD::INTRINSIC_VOID:
@@ -4504,6 +4533,9 @@ bool SelectionDAG::isGuaranteedNotToBeUndefOrPoison(SDValue Op,
     return true;
 
   switch (Opcode) {
+  case ISD::VALUETYPE:
+    return true;
+
   case ISD::UNDEF:
     return PoisonOnly;
 
@@ -4560,11 +4592,38 @@ bool SelectionDAG::canCreateUndefOrPoison(SDValue Op, const APInt &DemandedElts,
 
   unsigned Opcode = Op.getOpcode();
   switch (Opcode) {
+  case ISD::AssertSext:
+  case ISD::AssertZext:
+  case ISD::FREEZE:
+  case ISD::AND:
+  case ISD::OR:
+  case ISD::XOR:
+  case ISD::BSWAP:
+  case ISD::CTPOP:
+  case ISD::BITREVERSE:
+  case ISD::PARITY:
   case ISD::SIGN_EXTEND:
   case ISD::ZERO_EXTEND:
+  case ISD::TRUNCATE:
+  case ISD::SIGN_EXTEND_INREG:
   case ISD::BITCAST:
-  case ISD::FREEZE:
     return false;
+
+  case ISD::ADD:
+  case ISD::SUB:
+  case ISD::MUL:
+    // Matches hasPoisonGeneratingFlags().
+    return ConsiderFlags && (Op->getFlags().hasNoSignedWrap() ||
+                             Op->getFlags().hasNoUnsignedWrap());
+
+  case ISD::SHL:
+    // If the max shift amount isn't in range, then the shift can create poison.
+    if (!getValidMaximumShiftAmountConstant(Op, DemandedElts))
+      return true;
+
+    // Matches hasPoisonGeneratingFlags().
+    return ConsiderFlags && (Op->getFlags().hasNoSignedWrap() ||
+                             Op->getFlags().hasNoUnsignedWrap());
 
   default:
     // Allow the target to implement this method for its nodes.
@@ -4981,7 +5040,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
     case ISD::TRUNCATE:
       if (C->isOpaque())
         break;
-      LLVM_FALLTHROUGH;
+      [[fallthrough]];
     case ISD::ZERO_EXTEND:
       return getConstant(Val.zextOrTrunc(VT.getSizeInBits()), DL, VT,
                          C->isTargetOpcode(), C->isOpaque());
@@ -5840,7 +5899,7 @@ SDValue SelectionDAG::foldConstantFPMath(unsigned Opcode, const SDLoc &DL,
     if (ConstantFPSDNode *N1C = isConstOrConstSplatFP(N1, /*AllowUndefs*/ true))
       if (N1C && N1C->getValueAPF().isNegZero() && N2.isUndef())
         return getUNDEF(VT);
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
 
   case ISD::FADD:
   case ISD::FMUL:
@@ -5899,11 +5958,11 @@ void SelectionDAG::canonicalizeCommutativeBinop(unsigned Opcode, SDValue &N1,
 
   // Canonicalize:
   //   binop(const, nonconst) -> binop(nonconst, const)
-  bool IsN1C = isConstantIntBuildVectorOrConstantInt(N1);
-  bool IsN2C = isConstantIntBuildVectorOrConstantInt(N2);
-  bool IsN1CFP = isConstantFPBuildVectorOrConstantFP(N1);
-  bool IsN2CFP = isConstantFPBuildVectorOrConstantFP(N2);
-  if ((IsN1C && !IsN2C) || (IsN1CFP && !IsN2CFP))
+  SDNode *N1C = isConstantIntBuildVectorOrConstantInt(N1);
+  SDNode *N2C = isConstantIntBuildVectorOrConstantInt(N2);
+  SDNode *N1CFP = isConstantFPBuildVectorOrConstantFP(N1);
+  SDNode *N2CFP = isConstantFPBuildVectorOrConstantFP(N2);
+  if ((N1C && !N2C) || (N1CFP && !N2CFP))
     std::swap(N1, N2);
 
   // Canonicalize:
@@ -6051,12 +6110,12 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
       const APInt &ShiftImm = N2C->getAPIntValue();
       return getVScale(DL, VT, MulImm << ShiftImm);
     }
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::SRA:
   case ISD::SRL:
     if (SDValue V = simplifyShift(N1, N2))
       return V;
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case ISD::ROTL:
   case ISD::ROTR:
     assert(VT == N1.getValueType() &&
@@ -6346,7 +6405,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, const SDLoc &DL, EVT VT,
         // Handle undef ^ undef -> 0 special case. This is a common
         // idiom (misuse).
         return getConstant(0, DL, VT);
-      LLVM_FALLTHROUGH;
+      [[fallthrough]];
     case ISD::ADD:
     case ISD::SUB:
     case ISD::UDIV:

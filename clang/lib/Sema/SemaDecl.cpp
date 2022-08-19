@@ -456,7 +456,7 @@ ParsedType Sema::getTypeName(const IdentifierInfo &II, SourceLocation NameLoc,
       }
     }
     // If typo correction failed or was not performed, fall through
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
   case LookupResult::FoundOverloaded:
   case LookupResult::FoundUnresolvedValue:
     Result.suppressDiagnostics();
@@ -4042,7 +4042,7 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
     // default argument promotion rules were already checked by
     // ASTContext::typesAreCompatible().
     if (Old->hasPrototype() && !New->hasWrittenPrototype() && NewDeclIsDefn &&
-        Old->getNumParams() != New->getNumParams()) {
+        Old->getNumParams() != New->getNumParams() && !Old->isImplicit()) {
       if (Old->hasInheritedPrototype())
         Old = Old->getCanonicalDecl();
       Diag(New->getLocation(), diag::err_conflicting_types) << New;
@@ -4739,6 +4739,7 @@ bool Sema::checkVarDeclRedefinition(VarDecl *Old, VarDecl *New) {
   if (!hasVisibleDefinition(Old) &&
       (New->getFormalLinkage() == InternalLinkage ||
        New->isInline() ||
+       isa<VarTemplateSpecializationDecl>(New) ||
        New->getDescribedVarTemplate() ||
        New->getNumTemplateParameterLists() ||
        New->getDeclContext()->isDependentContext())) {
@@ -7637,7 +7638,7 @@ NamedDecl *Sema::ActOnVariableDeclarator(
     Diag(D.getDeclSpec().getConstexprSpecLoc(),
          diag::err_constexpr_wrong_decl_kind)
         << static_cast<int>(D.getDeclSpec().getConstexprSpecifier());
-    LLVM_FALLTHROUGH;
+    [[fallthrough]];
 
   case ConstexprSpecKind::Constexpr:
     NewVD->setConstexpr(true);
@@ -11513,16 +11514,25 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
     if (CXXConstructorDecl *Constructor = dyn_cast<CXXConstructorDecl>(NewFD)) {
       CheckConstructor(Constructor);
     } else if (CXXDestructorDecl *Destructor =
-                dyn_cast<CXXDestructorDecl>(NewFD)) {
-      CXXRecordDecl *Record = Destructor->getParent();
-      QualType ClassType = Context.getTypeDeclType(Record);
+                   dyn_cast<CXXDestructorDecl>(NewFD)) {
+      // We check here for invalid destructor names.
+      // If we have a friend destructor declaration that is dependent, we can't
+      // diagnose right away because cases like this are still valid:
+      // template <class T> struct A { friend T::X::~Y(); };
+      // struct B { struct Y { ~Y(); }; using X = Y; };
+      // template struct A<B>;
+      if (NewFD->getFriendObjectKind() == Decl::FriendObjectKind::FOK_None ||
+          !Destructor->getThisType()->isDependentType()) {
+        CXXRecordDecl *Record = Destructor->getParent();
+        QualType ClassType = Context.getTypeDeclType(Record);
 
-      DeclarationName Name = Context.DeclarationNames.getCXXDestructorName(
-          Context.getCanonicalType(ClassType));
-      if (NewFD->getDeclName() != Name) {
-        Diag(NewFD->getLocation(), diag::err_destructor_name);
-        NewFD->setInvalidDecl();
-        return Redeclaration;
+        DeclarationName Name = Context.DeclarationNames.getCXXDestructorName(
+            Context.getCanonicalType(ClassType));
+        if (NewFD->getDeclName() != Name) {
+          Diag(NewFD->getLocation(), diag::err_destructor_name);
+          NewFD->setInvalidDecl();
+          return Redeclaration;
+        }
       }
     } else if (auto *Guide = dyn_cast<CXXDeductionGuideDecl>(NewFD)) {
       if (auto *TD = Guide->getDescribedFunctionTemplate())
@@ -13292,7 +13302,7 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl) {
       // that has an in-class initializer, so we type-check this like
       // a declaration.
       //
-      LLVM_FALLTHROUGH;
+      [[fallthrough]];
 
     case VarDecl::DeclarationOnly:
       // It's only a declaration.
@@ -13362,8 +13372,12 @@ void Sema::ActOnUninitializedDecl(Decl *RealDecl) {
     // Provide a specific diagnostic for uninitialized variable
     // definitions with incomplete array type.
     if (Type->isIncompleteArrayType()) {
-      Diag(Var->getLocation(),
-           diag::err_typecheck_incomplete_array_needs_initializer);
+      if (Var->isConstexpr())
+        Diag(Var->getLocation(), diag::err_constexpr_var_requires_const_init)
+            << Var;
+      else
+        Diag(Var->getLocation(),
+             diag::err_typecheck_incomplete_array_needs_initializer);
       Var->setInvalidDecl();
       return;
     }
@@ -15709,11 +15723,20 @@ void Sema::AddKnownFunctionAttributes(FunctionDecl *FD) {
       FD->addAttr(CallbackAttr::CreateImplicit(
           Context, Encoding.data(), Encoding.size(), FD->getLocation()));
 
-    // Mark const if we don't care about errno and that is the only thing
-    // preventing the function from being const. This allows IRgen to use LLVM
-    // intrinsics for such functions.
-    if (!getLangOpts().MathErrno && !FD->hasAttr<ConstAttr>() &&
-        Context.BuiltinInfo.isConstWithoutErrno(BuiltinID))
+    // Mark const if we don't care about errno and/or floating point exceptions
+    // that are the only thing preventing the function from being const. This
+    // allows IRgen to use LLVM intrinsics for such functions.
+    bool NoExceptions =
+        getLangOpts().getDefaultExceptionMode() == LangOptions::FPE_Ignore;
+    bool ConstWithoutErrnoAndExceptions =
+        Context.BuiltinInfo.isConstWithoutErrnoAndExceptions(BuiltinID);
+    bool ConstWithoutExceptions =
+        Context.BuiltinInfo.isConstWithoutExceptions(BuiltinID);
+    if (!FD->hasAttr<ConstAttr>() &&
+        (ConstWithoutErrnoAndExceptions || ConstWithoutExceptions) &&
+        (!ConstWithoutErrnoAndExceptions ||
+         (!getLangOpts().MathErrno && NoExceptions)) &&
+        (!ConstWithoutExceptions || NoExceptions))
       FD->addAttr(ConstAttr::CreateImplicit(Context, FD->getLocation()));
 
     // We make "fma" on GNU or Windows const because we know it does not set
