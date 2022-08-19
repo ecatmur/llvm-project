@@ -504,18 +504,16 @@ define i32 @or_sext1(i32 %x) {
 ; X86:       # %bb.0:
 ; X86-NEXT:    xorl %eax, %eax
 ; X86-NEXT:    cmpl $43, {{[0-9]+}}(%esp)
-; X86-NEXT:    setge %al
-; X86-NEXT:    negl %eax
-; X86-NEXT:    orl $1, %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    leal -1(%eax,%eax), %eax
 ; X86-NEXT:    retl
 ;
 ; X64-LABEL: or_sext1:
 ; X64:       # %bb.0:
 ; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    cmpl $43, %edi
-; X64-NEXT:    setge %al
-; X64-NEXT:    negl %eax
-; X64-NEXT:    orl $1, %eax
+; X64-NEXT:    setl %al
+; X64-NEXT:    leal -1(%rax,%rax), %eax
 ; X64-NEXT:    retq
   %cmp = icmp sgt i32 %x, 42
   %sext = sext i1 %cmp to i32
@@ -523,23 +521,48 @@ define i32 @or_sext1(i32 %x) {
   ret i32 %or
 }
 
+define i64 @or_sext1_64(i64 %x) {
+; X86-LABEL: or_sext1_64:
+; X86:       # %bb.0:
+; X86-NEXT:    xorl %eax, %eax
+; X86-NEXT:    movl $42, %ecx
+; X86-NEXT:    cmpl {{[0-9]+}}(%esp), %ecx
+; X86-NEXT:    sbbl {{[0-9]+}}(%esp), %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    movzbl %al, %edx
+; X86-NEXT:    negl %edx
+; X86-NEXT:    movl %edx, %eax
+; X86-NEXT:    orl $1, %eax
+; X86-NEXT:    retl
+;
+; X64-LABEL: or_sext1_64:
+; X64:       # %bb.0:
+; X64-NEXT:    xorl %eax, %eax
+; X64-NEXT:    cmpq $43, %rdi
+; X64-NEXT:    setl %al
+; X64-NEXT:    leaq -1(%rax,%rax), %rax
+; X64-NEXT:    retq
+  %cmp = icmp sgt i64 %x, 42
+  %sext = sext i1 %cmp to i64
+  %or = or i64 %sext, 1
+  ret i64 %or
+}
+
 define i32 @or_sext2(i32 %x) {
 ; X86-LABEL: or_sext2:
 ; X86:       # %bb.0:
 ; X86-NEXT:    xorl %eax, %eax
 ; X86-NEXT:    cmpl $43, {{[0-9]+}}(%esp)
-; X86-NEXT:    setge %al
-; X86-NEXT:    negl %eax
-; X86-NEXT:    orl $2, %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    leal -1(%eax,%eax,2), %eax
 ; X86-NEXT:    retl
 ;
 ; X64-LABEL: or_sext2:
 ; X64:       # %bb.0:
 ; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    cmpl $43, %edi
-; X64-NEXT:    setge %al
-; X64-NEXT:    negl %eax
-; X64-NEXT:    orl $2, %eax
+; X64-NEXT:    setl %al
+; X64-NEXT:    leal -1(%rax,%rax,2), %eax
 ; X64-NEXT:    retq
   %cmp = icmp sgt i32 %x, 42
   %sext = sext i1 %cmp to i32
@@ -547,23 +570,48 @@ define i32 @or_sext2(i32 %x) {
   ret i32 %or
 }
 
+define i64 @or_sext2_64(i64 %x) {
+; X86-LABEL: or_sext2_64:
+; X86:       # %bb.0:
+; X86-NEXT:    xorl %eax, %eax
+; X86-NEXT:    movl $42, %ecx
+; X86-NEXT:    cmpl {{[0-9]+}}(%esp), %ecx
+; X86-NEXT:    sbbl {{[0-9]+}}(%esp), %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    movzbl %al, %edx
+; X86-NEXT:    negl %edx
+; X86-NEXT:    movl %edx, %eax
+; X86-NEXT:    orl $2, %eax
+; X86-NEXT:    retl
+;
+; X64-LABEL: or_sext2_64:
+; X64:       # %bb.0:
+; X64-NEXT:    xorl %eax, %eax
+; X64-NEXT:    cmpq $43, %rdi
+; X64-NEXT:    setl %al
+; X64-NEXT:    leaq -1(%rax,%rax,2), %rax
+; X64-NEXT:    retq
+  %cmp = icmp sgt i64 %x, 42
+  %sext = sext i1 %cmp to i64
+  %or = or i64 %sext, 2
+  ret i64 %or
+}
+
 define i32 @or_sext3(i32 %x) {
 ; X86-LABEL: or_sext3:
 ; X86:       # %bb.0:
 ; X86-NEXT:    xorl %eax, %eax
 ; X86-NEXT:    cmpl $43, {{[0-9]+}}(%esp)
-; X86-NEXT:    setge %al
-; X86-NEXT:    negl %eax
-; X86-NEXT:    orl $3, %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    leal -1(,%eax,4), %eax
 ; X86-NEXT:    retl
 ;
 ; X64-LABEL: or_sext3:
 ; X64:       # %bb.0:
 ; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    cmpl $43, %edi
-; X64-NEXT:    setge %al
-; X64-NEXT:    negl %eax
-; X64-NEXT:    orl $3, %eax
+; X64-NEXT:    setl %al
+; X64-NEXT:    leal -1(,%rax,4), %eax
 ; X64-NEXT:    retq
   %cmp = icmp sgt i32 %x, 42
   %sext = sext i1 %cmp to i32
@@ -571,23 +619,48 @@ define i32 @or_sext3(i32 %x) {
   ret i32 %or
 }
 
+define i64 @or_sext3_64(i64 %x) {
+; X86-LABEL: or_sext3_64:
+; X86:       # %bb.0:
+; X86-NEXT:    xorl %eax, %eax
+; X86-NEXT:    movl $42, %ecx
+; X86-NEXT:    cmpl {{[0-9]+}}(%esp), %ecx
+; X86-NEXT:    sbbl {{[0-9]+}}(%esp), %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    movzbl %al, %edx
+; X86-NEXT:    negl %edx
+; X86-NEXT:    movl %edx, %eax
+; X86-NEXT:    orl $3, %eax
+; X86-NEXT:    retl
+;
+; X64-LABEL: or_sext3_64:
+; X64:       # %bb.0:
+; X64-NEXT:    xorl %eax, %eax
+; X64-NEXT:    cmpq $43, %rdi
+; X64-NEXT:    setl %al
+; X64-NEXT:    leaq -1(,%rax,4), %rax
+; X64-NEXT:    retq
+  %cmp = icmp sgt i64 %x, 42
+  %sext = sext i1 %cmp to i64
+  %or = or i64 %sext, 3
+  ret i64 %or
+}
+
 define i32 @or_sext4(i32 %x) {
 ; X86-LABEL: or_sext4:
 ; X86:       # %bb.0:
 ; X86-NEXT:    xorl %eax, %eax
 ; X86-NEXT:    cmpl $43, {{[0-9]+}}(%esp)
-; X86-NEXT:    setge %al
-; X86-NEXT:    negl %eax
-; X86-NEXT:    orl $4, %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    leal -1(%eax,%eax,4), %eax
 ; X86-NEXT:    retl
 ;
 ; X64-LABEL: or_sext4:
 ; X64:       # %bb.0:
 ; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    cmpl $43, %edi
-; X64-NEXT:    setge %al
-; X64-NEXT:    negl %eax
-; X64-NEXT:    orl $4, %eax
+; X64-NEXT:    setl %al
+; X64-NEXT:    leal -1(%rax,%rax,4), %eax
 ; X64-NEXT:    retq
   %cmp = icmp sgt i32 %x, 42
   %sext = sext i1 %cmp to i32
@@ -595,23 +668,48 @@ define i32 @or_sext4(i32 %x) {
   ret i32 %or
 }
 
+define i64 @or_sext4_64(i64 %x) {
+; X86-LABEL: or_sext4_64:
+; X86:       # %bb.0:
+; X86-NEXT:    xorl %eax, %eax
+; X86-NEXT:    movl $42, %ecx
+; X86-NEXT:    cmpl {{[0-9]+}}(%esp), %ecx
+; X86-NEXT:    sbbl {{[0-9]+}}(%esp), %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    movzbl %al, %edx
+; X86-NEXT:    negl %edx
+; X86-NEXT:    movl %edx, %eax
+; X86-NEXT:    orl $4, %eax
+; X86-NEXT:    retl
+;
+; X64-LABEL: or_sext4_64:
+; X64:       # %bb.0:
+; X64-NEXT:    xorl %eax, %eax
+; X64-NEXT:    cmpq $43, %rdi
+; X64-NEXT:    setl %al
+; X64-NEXT:    leaq -1(%rax,%rax,4), %rax
+; X64-NEXT:    retq
+  %cmp = icmp sgt i64 %x, 42
+  %sext = sext i1 %cmp to i64
+  %or = or i64 %sext, 4
+  ret i64 %or
+}
+
 define i32 @or_sext7(i32 %x) {
 ; X86-LABEL: or_sext7:
 ; X86:       # %bb.0:
 ; X86-NEXT:    xorl %eax, %eax
 ; X86-NEXT:    cmpl $43, {{[0-9]+}}(%esp)
-; X86-NEXT:    setge %al
-; X86-NEXT:    negl %eax
-; X86-NEXT:    orl $7, %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    leal -1(,%eax,8), %eax
 ; X86-NEXT:    retl
 ;
 ; X64-LABEL: or_sext7:
 ; X64:       # %bb.0:
 ; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    cmpl $43, %edi
-; X64-NEXT:    setge %al
-; X64-NEXT:    negl %eax
-; X64-NEXT:    orl $7, %eax
+; X64-NEXT:    setl %al
+; X64-NEXT:    leal -1(,%rax,8), %eax
 ; X64-NEXT:    retq
   %cmp = icmp sgt i32 %x, 42
   %sext = sext i1 %cmp to i32
@@ -619,23 +717,48 @@ define i32 @or_sext7(i32 %x) {
   ret i32 %or
 }
 
+define i64 @or_sext7_64(i64 %x) {
+; X86-LABEL: or_sext7_64:
+; X86:       # %bb.0:
+; X86-NEXT:    xorl %eax, %eax
+; X86-NEXT:    movl $42, %ecx
+; X86-NEXT:    cmpl {{[0-9]+}}(%esp), %ecx
+; X86-NEXT:    sbbl {{[0-9]+}}(%esp), %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    movzbl %al, %edx
+; X86-NEXT:    negl %edx
+; X86-NEXT:    movl %edx, %eax
+; X86-NEXT:    orl $7, %eax
+; X86-NEXT:    retl
+;
+; X64-LABEL: or_sext7_64:
+; X64:       # %bb.0:
+; X64-NEXT:    xorl %eax, %eax
+; X64-NEXT:    cmpq $43, %rdi
+; X64-NEXT:    setl %al
+; X64-NEXT:    leaq -1(,%rax,8), %rax
+; X64-NEXT:    retq
+  %cmp = icmp sgt i64 %x, 42
+  %sext = sext i1 %cmp to i64
+  %or = or i64 %sext, 7
+  ret i64 %or
+}
+
 define i32 @or_sext8(i32 %x) {
 ; X86-LABEL: or_sext8:
 ; X86:       # %bb.0:
 ; X86-NEXT:    xorl %eax, %eax
 ; X86-NEXT:    cmpl $43, {{[0-9]+}}(%esp)
-; X86-NEXT:    setge %al
-; X86-NEXT:    negl %eax
-; X86-NEXT:    orl $8, %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    leal -1(%eax,%eax,8), %eax
 ; X86-NEXT:    retl
 ;
 ; X64-LABEL: or_sext8:
 ; X64:       # %bb.0:
 ; X64-NEXT:    xorl %eax, %eax
 ; X64-NEXT:    cmpl $43, %edi
-; X64-NEXT:    setge %al
-; X64-NEXT:    negl %eax
-; X64-NEXT:    orl $8, %eax
+; X64-NEXT:    setl %al
+; X64-NEXT:    leal -1(%rax,%rax,8), %eax
 ; X64-NEXT:    retq
   %cmp = icmp sgt i32 %x, 42
   %sext = sext i1 %cmp to i32
@@ -643,3 +766,29 @@ define i32 @or_sext8(i32 %x) {
   ret i32 %or
 }
 
+define i64 @or_sext8_64(i64 %x) {
+; X86-LABEL: or_sext8_64:
+; X86:       # %bb.0:
+; X86-NEXT:    xorl %eax, %eax
+; X86-NEXT:    movl $42, %ecx
+; X86-NEXT:    cmpl {{[0-9]+}}(%esp), %ecx
+; X86-NEXT:    sbbl {{[0-9]+}}(%esp), %eax
+; X86-NEXT:    setl %al
+; X86-NEXT:    movzbl %al, %edx
+; X86-NEXT:    negl %edx
+; X86-NEXT:    movl %edx, %eax
+; X86-NEXT:    orl $8, %eax
+; X86-NEXT:    retl
+;
+; X64-LABEL: or_sext8_64:
+; X64:       # %bb.0:
+; X64-NEXT:    xorl %eax, %eax
+; X64-NEXT:    cmpq $43, %rdi
+; X64-NEXT:    setl %al
+; X64-NEXT:    leaq -1(%rax,%rax,8), %rax
+; X64-NEXT:    retq
+  %cmp = icmp sgt i64 %x, 42
+  %sext = sext i1 %cmp to i64
+  %or = or i64 %sext, 8
+  ret i64 %or
+}
