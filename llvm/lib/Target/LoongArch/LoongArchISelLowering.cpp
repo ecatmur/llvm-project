@@ -17,9 +17,12 @@
 #include "LoongArchRegisterInfo.h"
 #include "LoongArchSubtarget.h"
 #include "LoongArchTargetMachine.h"
+#include "MCTargetDesc/LoongArchBaseInfo.h"
 #include "MCTargetDesc/LoongArchMCTargetDesc.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/IntrinsicsLoongArch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/KnownBits.h"
 
@@ -77,6 +80,10 @@ LoongArchTargetLowering::LoongArchTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::CTLZ, MVT::i32, Custom);
     if (Subtarget.hasBasicF() && !Subtarget.hasBasicD())
       setOperationAction(ISD::FP_TO_UINT, MVT::i32, Custom);
+    if (Subtarget.hasBasicF())
+      setOperationAction(ISD::FRINT, MVT::f32, Legal);
+    if (Subtarget.hasBasicD())
+      setOperationAction(ISD::FRINT, MVT::f64, Legal);
   }
 
   // LA32 does not have REVB.2W and REVB.D due to the 64-bit operands, and
@@ -103,13 +110,21 @@ LoongArchTargetLowering::LoongArchTargetLowering(const TargetMachine &TM,
   if (Subtarget.hasBasicF()) {
     setCondCodeAction(FPCCToExpand, MVT::f32, Expand);
     setOperationAction(ISD::SELECT_CC, MVT::f32, Expand);
+    setOperationAction(ISD::BR_CC, MVT::f32, Expand);
+    setOperationAction(ISD::FMA, MVT::f32, Legal);
   }
   if (Subtarget.hasBasicD()) {
     setCondCodeAction(FPCCToExpand, MVT::f64, Expand);
     setOperationAction(ISD::SELECT_CC, MVT::f64, Expand);
+    setOperationAction(ISD::BR_CC, MVT::f64, Expand);
     setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f32, Expand);
     setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f32, Expand);
+    setOperationAction(ISD::FMA, MVT::f64, Legal);
   }
+
+  // Effectively disable jump table generation.
+  setMinimumJumpTableEntries(INT_MAX);
+  setOperationAction(ISD::BR_JT, MVT::Other, Expand);
 
   setOperationAction(ISD::BR_CC, GRLenVT, Expand);
   setOperationAction(ISD::SELECT_CC, GRLenVT, Expand);
@@ -129,6 +144,8 @@ LoongArchTargetLowering::LoongArchTargetLowering(const TargetMachine &TM,
   setBooleanContents(ZeroOrOneBooleanContent);
 
   setMaxAtomicSizeInBitsSupported(Subtarget.getGRLen());
+
+  setMinCmpXchgSizeInBits(32);
 
   // Function alignments.
   const Align FunctionAlignment(4);
@@ -278,10 +295,13 @@ SDValue LoongArchTargetLowering::lowerGlobalAddress(SDValue Op,
 
   // TODO: Support dso_preemptable and target flags.
   if (GV->isDSOLocal()) {
-    SDValue GA = DAG.getTargetGlobalAddress(GV, DL, Ty);
-    SDValue AddrHi(DAG.getMachineNode(LoongArch::PCALAU12I, DL, Ty, GA), 0);
-    SDValue Addr(DAG.getMachineNode(ADDIOp, DL, Ty, AddrHi, GA), 0);
-    return Addr;
+    SDValue GAHi =
+        DAG.getTargetGlobalAddress(GV, DL, Ty, 0, LoongArchII::MO_PCREL_HI);
+    SDValue GALo =
+        DAG.getTargetGlobalAddress(GV, DL, Ty, 0, LoongArchII::MO_PCREL_LO);
+    SDValue AddrHi(DAG.getMachineNode(LoongArch::PCALAU12I, DL, Ty, GAHi), 0);
+
+    return SDValue(DAG.getMachineNode(ADDIOp, DL, Ty, AddrHi, GALo), 0);
   }
   report_fatal_error("Unable to lowerGlobalAddress");
 }
@@ -1091,7 +1111,7 @@ static bool CC_LoongArch(const DataLayout &DL, LoongArchABI::ABI ABI,
   }
 
   // FPR32 and FPR64 alias each other.
-  if (State.getFirstUnallocated(ArgFPR32s) == array_lengthof(ArgFPR32s))
+  if (State.getFirstUnallocated(ArgFPR32s) == std::size(ArgFPR32s))
     UseGPRForFloat = true;
 
   if (UseGPRForFloat && ValVT == MVT::f32) {
@@ -1116,7 +1136,7 @@ static bool CC_LoongArch(const DataLayout &DL, LoongArchABI::ABI ABI,
       DL.getTypeAllocSize(OrigTy) == TwoGRLenInBytes) {
     unsigned RegIdx = State.getFirstUnallocated(ArgGPRs);
     // Skip 'odd' register if necessary.
-    if (RegIdx != array_lengthof(ArgGPRs) && RegIdx % 2 == 1)
+    if (RegIdx != std::size(ArgGPRs) && RegIdx % 2 == 1)
       State.AllocateReg(ArgGPRs);
   }
 
@@ -1601,11 +1621,20 @@ LoongArchTargetLowering::LowerCall(CallLoweringInfo &CLI,
   // If the callee is a GlobalAddress/ExternalSymbol node, turn it into a
   // TargetGlobalAddress/TargetExternalSymbol node so that legalize won't
   // split it and then direct call can be matched by PseudoCALL.
-  // FIXME: Add target flags for relocation.
-  if (GlobalAddressSDNode *S = dyn_cast<GlobalAddressSDNode>(Callee))
-    Callee = DAG.getTargetGlobalAddress(S->getGlobal(), DL, PtrVT);
-  else if (ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(Callee))
-    Callee = DAG.getTargetExternalSymbol(S->getSymbol(), PtrVT);
+  if (GlobalAddressSDNode *S = dyn_cast<GlobalAddressSDNode>(Callee)) {
+    const GlobalValue *GV = S->getGlobal();
+    unsigned OpFlags =
+        getTargetMachine().shouldAssumeDSOLocal(*GV->getParent(), GV)
+            ? LoongArchII::MO_CALL
+            : LoongArchII::MO_CALL_PLT;
+    Callee = DAG.getTargetGlobalAddress(S->getGlobal(), DL, PtrVT, 0, OpFlags);
+  } else if (ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
+    unsigned OpFlags = getTargetMachine().shouldAssumeDSOLocal(
+                           *MF.getFunction().getParent(), nullptr)
+                           ? LoongArchII::MO_CALL
+                           : LoongArchII::MO_CALL_PLT;
+    Callee = DAG.getTargetExternalSymbol(S->getSymbol(), PtrVT, OpFlags);
+  }
 
   // The first call operand is the chain and the second is the target address.
   SmallVector<SDValue> Ops;
@@ -1635,8 +1664,7 @@ LoongArchTargetLowering::LowerCall(CallLoweringInfo &CLI,
   Glue = Chain.getValue(1);
 
   // Mark the end of the call, which is glued to the call itself.
-  Chain = DAG.getCALLSEQ_END(Chain, DAG.getConstant(NumBytes, DL, PtrVT, true),
-                             DAG.getConstant(0, DL, PtrVT, true), Glue, DL);
+  Chain = DAG.getCALLSEQ_END(Chain, NumBytes, 0, Glue, DL);
   Glue = Chain.getValue(1);
 
   // Assign locations to each value returned by this call.
@@ -1730,6 +1758,133 @@ bool LoongArchTargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT,
   return (Imm.isZero() || Imm.isExactlyValue(+1.0));
 }
 
-bool LoongArchTargetLowering::isCheapToSpeculateCttz() const { return true; }
+bool LoongArchTargetLowering::isCheapToSpeculateCttz(Type *) const {
+  return true;
+}
 
-bool LoongArchTargetLowering::isCheapToSpeculateCtlz() const { return true; }
+bool LoongArchTargetLowering::isCheapToSpeculateCtlz(Type *) const {
+  return true;
+}
+
+bool LoongArchTargetLowering::shouldInsertFencesForAtomic(
+    const Instruction *I) const {
+  if (!Subtarget.is64Bit())
+    return isa<LoadInst>(I) || isa<StoreInst>(I);
+
+  if (isa<LoadInst>(I))
+    return true;
+
+  // On LA64, atomic store operations with IntegerBitWidth of 32 and 64 do not
+  // require fences beacuse we can use amswap_db.[w/d].
+  if (isa<StoreInst>(I)) {
+    unsigned Size = I->getOperand(0)->getType()->getIntegerBitWidth();
+    return (Size == 8 || Size == 16);
+  }
+
+  return false;
+}
+
+bool LoongArchTargetLowering::hasAndNot(SDValue Y) const {
+  // TODO: Support vectors.
+  return Y.getValueType().isScalarInteger() && !isa<ConstantSDNode>(Y);
+}
+
+bool LoongArchTargetLowering::getTgtMemIntrinsic(IntrinsicInfo &Info,
+                                                 const CallInst &I,
+                                                 MachineFunction &MF,
+                                                 unsigned Intrinsic) const {
+  switch (Intrinsic) {
+  default:
+    return false;
+  case Intrinsic::loongarch_masked_atomicrmw_xchg_i32:
+    Info.opc = ISD::INTRINSIC_W_CHAIN;
+    Info.memVT = MVT::i32;
+    Info.ptrVal = I.getArgOperand(0);
+    Info.offset = 0;
+    Info.align = Align(4);
+    Info.flags = MachineMemOperand::MOLoad | MachineMemOperand::MOStore |
+                 MachineMemOperand::MOVolatile;
+    return true;
+    // TODO: Add more Intrinsics later.
+  }
+}
+
+TargetLowering::AtomicExpansionKind
+LoongArchTargetLowering::shouldExpandAtomicRMWInIR(AtomicRMWInst *AI) const {
+  // TODO: Add more AtomicRMWInst that needs to be extended.
+  unsigned Size = AI->getType()->getPrimitiveSizeInBits();
+  if (Size == 8 || Size == 16)
+    return AtomicExpansionKind::MaskedIntrinsic;
+  return AtomicExpansionKind::None;
+}
+
+static Intrinsic::ID
+getIntrinsicForMaskedAtomicRMWBinOp(unsigned GRLen,
+                                    AtomicRMWInst::BinOp BinOp) {
+  if (GRLen == 64) {
+    switch (BinOp) {
+    default:
+      llvm_unreachable("Unexpected AtomicRMW BinOp");
+    case AtomicRMWInst::Xchg:
+      return Intrinsic::loongarch_masked_atomicrmw_xchg_i64;
+      // TODO: support other AtomicRMWInst.
+    }
+  }
+
+  if (GRLen == 32) {
+    switch (BinOp) {
+    default:
+      llvm_unreachable("Unexpected AtomicRMW BinOp");
+    case AtomicRMWInst::Xchg:
+      return Intrinsic::loongarch_masked_atomicrmw_xchg_i32;
+      // TODO: support other AtomicRMWInst.
+    }
+  }
+
+  llvm_unreachable("Unexpected GRLen\n");
+}
+
+Value *LoongArchTargetLowering::emitMaskedAtomicRMWIntrinsic(
+    IRBuilderBase &Builder, AtomicRMWInst *AI, Value *AlignedAddr, Value *Incr,
+    Value *Mask, Value *ShiftAmt, AtomicOrdering Ord) const {
+  unsigned GRLen = Subtarget.getGRLen();
+  Value *Ordering =
+      Builder.getIntN(GRLen, static_cast<uint64_t>(AI->getOrdering()));
+  Type *Tys[] = {AlignedAddr->getType()};
+  Function *LlwOpScwLoop = Intrinsic::getDeclaration(
+      AI->getModule(),
+      getIntrinsicForMaskedAtomicRMWBinOp(GRLen, AI->getOperation()), Tys);
+
+  if (GRLen == 64) {
+    Incr = Builder.CreateSExt(Incr, Builder.getInt64Ty());
+    Mask = Builder.CreateSExt(Mask, Builder.getInt64Ty());
+    ShiftAmt = Builder.CreateSExt(ShiftAmt, Builder.getInt64Ty());
+  }
+
+  Value *Result;
+
+  Result =
+      Builder.CreateCall(LlwOpScwLoop, {AlignedAddr, Incr, Mask, Ordering});
+
+  if (GRLen == 64)
+    Result = Builder.CreateTrunc(Result, Builder.getInt32Ty());
+  return Result;
+}
+
+bool LoongArchTargetLowering::isFMAFasterThanFMulAndFAdd(
+    const MachineFunction &MF, EVT VT) const {
+  VT = VT.getScalarType();
+
+  if (!VT.isSimple())
+    return false;
+
+  switch (VT.getSimpleVT().SimpleTy) {
+  case MVT::f32:
+  case MVT::f64:
+    return true;
+  default:
+    break;
+  }
+
+  return false;
+}

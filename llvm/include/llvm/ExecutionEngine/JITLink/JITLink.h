@@ -774,7 +774,7 @@ class SectionRange {
 public:
   SectionRange() = default;
   SectionRange(const Section &Sec) {
-    if (llvm::empty(Sec.blocks()))
+    if (Sec.blocks().empty())
       return;
     First = Last = *Sec.blocks().begin();
     for (auto *B : Sec.blocks()) {
@@ -1206,7 +1206,9 @@ public:
              "Sym is not in the absolute symbols set");
       assert(Sym.getOffset() == 0 && "Absolute not at offset 0");
       AbsoluteSymbols.erase(&Sym);
-      Sym.getAddressable().setAbsolute(false);
+      auto &A = Sym.getAddressable();
+      A.setAbsolute(false);
+      A.setAddress(orc::ExecutorAddr());
     } else {
       assert(Sym.isDefined() && "Sym is not a defined symbol");
       Section &Sec = Sym.getBlock().getSection();
@@ -1231,7 +1233,9 @@ public:
              "Sym is not in the absolute symbols set");
       assert(Sym.getOffset() == 0 && "External is not at offset 0");
       ExternalSymbols.erase(&Sym);
-      Sym.getAddressable().setAbsolute(true);
+      auto &A = Sym.getAddressable();
+      A.setAbsolute(true);
+      A.setAddress(Address);
       Sym.setScope(Scope::Local);
     } else {
       assert(Sym.isDefined() && "Sym is not a defined symbol");

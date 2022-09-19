@@ -50,6 +50,7 @@ private:
   bool HasStdExtD = false;
   bool HasStdExtC = false;
   bool HasStdExtZihintpause = false;
+  bool HasStdExtZihintntl = false;
   bool HasStdExtZba = false;
   bool HasStdExtZbb = false;
   bool HasStdExtZbc = false;
@@ -91,6 +92,7 @@ private:
   bool HasStdExtZicboz = false;
   bool HasStdExtZicbop = false;
   bool HasStdExtZmmul = false;
+  bool HasStdExtZtso = false;
   bool HasRV32 = false;
   bool HasRV64 = false;
   bool IsRV32E = false;
@@ -106,7 +108,7 @@ private:
   MVT XLenVT = MVT::i32;
   uint8_t MaxInterleaveFactor = 2;
   RISCVABI::ABI TargetABI = RISCVABI::ABI_Unknown;
-  BitVector UserReservedRegister;
+  std::bitset<RISCV::NUM_TARGET_REGS> UserReservedRegister;
   RISCVFrameLowering FrameLowering;
   RISCVInstrInfo InstrInfo;
   RISCVRegisterInfo RegInfo;
@@ -158,6 +160,7 @@ public:
   bool hasStdExtC() const { return HasStdExtC; }
   bool hasStdExtV() const { return HasStdExtV; }
   bool hasStdExtZihintpause() const { return HasStdExtZihintpause; }
+  bool hasStdExtZihintntl() const { return HasStdExtZihintntl; }
   bool hasStdExtZba() const { return HasStdExtZba; }
   bool hasStdExtZbb() const { return HasStdExtZbb; }
   bool hasStdExtZbc() const { return HasStdExtZbc; }
@@ -190,6 +193,7 @@ public:
   bool hasStdExtZicboz() const { return HasStdExtZicboz; }
   bool hasStdExtZicbop() const { return HasStdExtZicbop; }
   bool hasStdExtZmmul() const { return HasStdExtZmmul; }
+  bool hasStdExtZtso() const { return HasStdExtZtso; }
   bool is64Bit() const { return HasRV64; }
   bool isRV32E() const { return IsRV32E; }
   bool enableLinkerRelax() const { return EnableLinkerRelax; }

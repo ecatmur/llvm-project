@@ -221,6 +221,7 @@ class DeclArgument<DeclNode kind, string name, bit opt = 0, bit fake = 0>
 //   OMPTraitProperty := {Kind}
 //
 class OMPTraitInfoArgument<string name> : Argument<name, 0>;
+class VariadicOMPInteropInfoArgument<string name> : Argument<name, 0>;
 
 class TypeArgument<string name, bit opt = 0> : Argument<name, opt>;
 class UnsignedArgument<string name, bit opt = 0> : Argument<name, opt>;
@@ -398,6 +399,9 @@ def TargetRISCV : TargetArch<["riscv32", "riscv64"]>;
 def TargetX86 : TargetArch<["x86"]>;
 def TargetAnyX86 : TargetArch<["x86", "x86_64"]>;
 def TargetWebAssembly : TargetArch<["wasm32", "wasm64"]>;
+def TargetWindows : TargetSpec {
+  let OSes = ["Win32"];
+}
 def TargetHasDLLImportExport : TargetSpec {
   let CustomCode = [{ Target.getTriple().hasDLLImportExport() }];
 }
@@ -606,6 +610,9 @@ class DeclOrTypeAttr : InheritableAttr;
 
 /// A attribute is either a declaration attribute or a statement attribute.
 class DeclOrStmtAttr : InheritableAttr;
+
+/// An attribute class for HLSL Annotations.
+class HLSLAnnotationAttr : InheritableAttr;
 
 /// A target-specific attribute.  This class is meant to be used as a mixin
 /// with InheritableAttr or Attr depending on the attribute's needs.
@@ -901,6 +908,7 @@ def Availability : InheritableAttr {
              .Case("maccatalyst", "macCatalyst")
              .Case("maccatalyst_app_extension", "macCatalyst (App Extension)")
              .Case("swift", "Swift")
+             .Case("shadermodel", "HLSL ShaderModel")
              .Default(llvm::StringRef());
 }
 static llvm::StringRef getPlatformNameSourceSpelling(llvm::StringRef Platform) {
@@ -916,6 +924,7 @@ static llvm::StringRef getPlatformNameSourceSpelling(llvm::StringRef Platform) {
              .Case("maccatalyst", "macCatalyst")
              .Case("maccatalyst_app_extension", "macCatalystApplicationExtension")
              .Case("zos", "z/OS")
+             .Case("shadermodel", "ShaderModel")
              .Default(Platform);
 }
 static llvm::StringRef canonicalizePlatformName(llvm::StringRef Platform) {
@@ -930,6 +939,7 @@ static llvm::StringRef canonicalizePlatformName(llvm::StringRef Platform) {
              .Case("watchOSApplicationExtension", "watchos_app_extension")
              .Case("macCatalyst", "maccatalyst")
              .Case("macCatalystApplicationExtension", "maccatalyst_app_extension")
+             .Case("ShaderModel", "shadermodel")
              .Default(Platform);
 } }];
   let HasCustomParsing = 1;
@@ -1405,7 +1415,7 @@ def ExtVectorType : Attr {
 
 def FallThrough : StmtAttr {
   let Spellings = [CXX11<"", "fallthrough", 201603>,
-                   C2x<"", "fallthrough", 201904>,
+                   C2x<"", "fallthrough", 201910>,
                    CXX11<"clang", "fallthrough">, GCC<"fallthrough">];
   // The attribute only applies to a NullStmt, but we have special fix-it
   // behavior if applied to a case label.
@@ -2073,9 +2083,16 @@ def NotTailCalled : InheritableAttr {
 def : MutualExclusions<[AlwaysInline, NotTailCalled]>;
 
 def NoStackProtector : InheritableAttr {
-  let Spellings = [Clang<"no_stack_protector">];
+  let Spellings = [Clang<"no_stack_protector">, Declspec<"safebuffers">];
   let Subjects = SubjectList<[Function]>;
   let Documentation = [NoStackProtectorDocs];
+  let SimpleHandler = 1;
+}
+
+def StrictGuardStackCheck : InheritableAttr {
+  let Spellings = [Declspec<"strict_gs_check">];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [StrictGuardStackCheckDocs];
   let SimpleHandler = 1;
 }
 
@@ -2083,6 +2100,13 @@ def NoThrow : InheritableAttr {
   let Spellings = [GCC<"nothrow">, Declspec<"nothrow">];
   let Subjects = SubjectList<[FunctionLike]>;
   let Documentation = [NoThrowDocs];
+}
+
+def NoUwtable : InheritableAttr {
+  let Spellings = [Clang<"nouwtable">];
+  let Subjects = SubjectList<[FunctionLike]>;
+  let Documentation = [NoUwtableDocs];
+  let SimpleHandler = 1;
 }
 
 def NvWeak : IgnoredAttr {
@@ -2879,7 +2903,7 @@ def ObjCRequiresPropertyDefs : InheritableAttr {
 
 def Unused : InheritableAttr {
   let Spellings = [CXX11<"", "maybe_unused", 201603>, GCC<"unused">,
-                   C2x<"", "maybe_unused", 201904>];
+                   C2x<"", "maybe_unused", 202106>];
   let Subjects = SubjectList<[Var, ObjCIvar, Type, Enum, EnumConstant, Label,
                               Field, ObjCMethod, FunctionLike]>;
   let Documentation = [WarnMaybeUnusedDocs];
@@ -2973,7 +2997,7 @@ def WarnUnused : InheritableAttr {
 
 def WarnUnusedResult : InheritableAttr {
   let Spellings = [CXX11<"", "nodiscard", 201907>,
-                   C2x<"", "nodiscard", 201904>,
+                   C2x<"", "nodiscard", 202003>,
                    CXX11<"clang", "warn_unused_result">,
                    GCC<"warn_unused_result">];
   let Subjects = SubjectList<[ObjCMethod, Enum, Record, FunctionLike, TypedefName]>;
@@ -3490,10 +3514,10 @@ def MSAllocator : InheritableAttr {
   let Documentation = [MSAllocatorDocs];
 }
 
-def CFGuard : InheritableAttr {
+def CFGuard : InheritableAttr, TargetSpecificAttr<TargetWindows> {
   // Currently only the __declspec(guard(nocf)) modifier is supported. In future
   // we might also want to support __declspec(guard(suppress)).
-  let Spellings = [Declspec<"guard">];
+  let Spellings = [Declspec<"guard">, Clang<"guard">];
   let Subjects = SubjectList<[Function]>;
   let Args = [EnumArgument<"Guard", "GuardArg", ["nocf"], ["nocf"]>];
   let Documentation = [CFGuardDocs];
@@ -3827,14 +3851,19 @@ def OMPDeclareVariant : InheritableAttr {
     OMPTraitInfoArgument<"TraitInfos">,
     VariadicExprArgument<"AdjustArgsNothing">,
     VariadicExprArgument<"AdjustArgsNeedDevicePtr">,
-    VariadicEnumArgument<"AppendArgs", "InteropType",
-                     ["target", "targetsync", "target,targetsync"],
-                     ["Target", "TargetSync", "Target_TargetSync"]>
+    VariadicOMPInteropInfoArgument<"AppendArgs">,
   ];
   let AdditionalMembers = [{
     OMPTraitInfo &getTraitInfo() { return *traitInfos; }
     void printPrettyPragma(raw_ostream & OS, const PrintingPolicy &Policy)
         const;
+    static StringRef getInteropTypeString(const OMPInteropInfo *I) {
+      if (I->IsTarget && I->IsTargetSync)
+        return "target,targetsync";
+      if (I->IsTarget)
+        return "target";
+      return "targetsync";
+    }
   }];
 }
 
@@ -4005,7 +4034,7 @@ def HLSLNumThreads: InheritableAttr {
   let Documentation = [NumThreadsDocs];
 }
 
-def HLSLSV_GroupIndex: InheritableAttr {
+def HLSLSV_GroupIndex: HLSLAnnotationAttr {
   let Spellings = [HLSLSemantic<"SV_GroupIndex">];
   let Subjects = SubjectList<[ParmVar, GlobalVar]>;
   let LangOpts = [HLSL];

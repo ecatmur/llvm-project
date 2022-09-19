@@ -71,6 +71,8 @@ def shfl_uimm : Operand<XLenVT>, ImmLeaf<XLenVT, [{
 }]> {
   let ParserMatchClass = UImmLog2XLenHalfAsmOperand;
   let DecoderMethod = "decodeUImmOperand<5>";
+  let OperandType = "OPERAND_UIMM_SHFL";
+  let OperandNamespace = "RISCVOp";
   let MCOperandPredicate = [{
     int64_t Imm;
     if (!MCOp.evaluateAsConstantImm(Imm))
@@ -87,7 +89,7 @@ def BCLRXForm : SDNodeXForm<imm, [{
                                    SDLoc(N), N->getValueType(0));
 }]>;
 
-def BSETINVXForm : SDNodeXForm<imm, [{
+def SingleBitSetMaskToIndex : SDNodeXForm<imm, [{
   // Find the lowest 1.
   return CurDAG->getTargetConstant(countTrailingZeros(N->getZExtValue()),
                                    SDLoc(N), N->getValueType(0));
@@ -101,11 +103,11 @@ def BCLRMask : ImmLeaf<XLenVT, [{
 }], BCLRXForm>;
 
 // Checks if this mask has a single 1 bit and cannot be used with ORI/XORI.
-def BSETINVMask : ImmLeaf<XLenVT, [{
+def SingleBitSetMask : ImmLeaf<XLenVT, [{
   if (Subtarget->is64Bit())
     return !isInt<12>(Imm) && isPowerOf2_64(Imm);
   return !isInt<12>(Imm) && isPowerOf2_32(Imm);
-}], BSETINVXForm>;
+}], SingleBitSetMaskToIndex>;
 
 // Check if (or r, i) can be optimized to (BSETI (BSETI r, i0), i1),
 // in which i = (1 << i0) | (1 << i1).
@@ -883,16 +885,16 @@ def : Pat<(shiftop<shl> 1, GPR:$rs2),
 
 def : Pat<(and GPR:$rs1, BCLRMask:$mask),
           (BCLRI GPR:$rs1, BCLRMask:$mask)>;
-def : Pat<(or GPR:$rs1, BSETINVMask:$mask),
-          (BSETI GPR:$rs1, BSETINVMask:$mask)>;
-def : Pat<(xor GPR:$rs1, BSETINVMask:$mask),
-          (BINVI GPR:$rs1, BSETINVMask:$mask)>;
+def : Pat<(or GPR:$rs1, SingleBitSetMask:$mask),
+          (BSETI GPR:$rs1, SingleBitSetMask:$mask)>;
+def : Pat<(xor GPR:$rs1, SingleBitSetMask:$mask),
+          (BINVI GPR:$rs1, SingleBitSetMask:$mask)>;
 
 def : Pat<(and (srl GPR:$rs1, uimmlog2xlen:$shamt), (XLenVT 1)),
           (BEXTI GPR:$rs1, uimmlog2xlen:$shamt)>;
 
-def : Pat<(and (not (srl GPR:$rs1, uimmlog2xlen:$shamt)), (XLenVT 1)),
-          (XORI (BEXTI GPR:$rs1, uimmlog2xlen:$shamt), (XLenVT 1))>;
+def : Pat<(seteq (and GPR:$rs1, SingleBitSetMask:$mask), 0),
+          (BEXTI (XORI GPR:$rs1, -1), SingleBitSetMask:$mask)>;
 
 def : Pat<(or GPR:$r, BSETINVTwoBitsMask:$i),
           (BSETI (BSETI GPR:$r, (TrailingZerosXForm BSETINVTwoBitsMask:$i)),
@@ -997,20 +999,6 @@ def : Pat<(select (XLenVT (setne GPR:$x, GPR:$y)), GPR:$rs1, GPR:$rs3),
           (CMOV GPR:$rs1, (XOR GPR:$x, GPR:$y), GPR:$rs3)>;
 def : Pat<(select (XLenVT (seteq GPR:$x, GPR:$y)), GPR:$rs3, GPR:$rs1),
           (CMOV GPR:$rs1, (XOR GPR:$x, GPR:$y), GPR:$rs3)>;
-def : Pat<(select (XLenVT (setuge GPR:$x, GPR:$y)), GPR:$rs3, GPR:$rs1),
-          (CMOV GPR:$rs1, (SLTU GPR:$x, GPR:$y), GPR:$rs3)>;
-def : Pat<(select (XLenVT (setule GPR:$y, GPR:$x)), GPR:$rs3, GPR:$rs1),
-          (CMOV GPR:$rs1, (SLTU GPR:$x, GPR:$y), GPR:$rs3)>;
-def : Pat<(select (XLenVT (setge GPR:$x, GPR:$y)), GPR:$rs3, GPR:$rs1),
-          (CMOV GPR:$rs1, (SLT GPR:$x, GPR:$y), GPR:$rs3)>;
-def : Pat<(select (XLenVT (setle GPR:$y, GPR:$x)), GPR:$rs3, GPR:$rs1),
-          (CMOV GPR:$rs1, (SLT GPR:$x, GPR:$y), GPR:$rs3)>;
-
-// setge X, Imm is canonicalized to setgt X, (Imm - 1).
-def : Pat<(select (XLenVT (setgt GPR:$x, simm12_minus1_nonzero:$imm)), GPR:$rs3, GPR:$rs1),
-          (CMOV GPR:$rs1, (SLTI GPR:$x, (ImmPlus1 simm12_minus1_nonzero:$imm)), GPR:$rs3)>;
-def : Pat<(select (XLenVT (setugt GPR:$x, simm12_minus1_nonzero:$imm)), GPR:$rs3, GPR:$rs1),
-          (CMOV GPR:$rs1, (SLTIU GPR:$x, (ImmPlus1 simm12_minus1_nonzero:$imm)), GPR:$rs3)>;
 
 def : Pat<(select GPR:$rs2, GPR:$rs1, GPR:$rs3),
           (CMOV GPR:$rs1, GPR:$rs2, GPR:$rs3)>;

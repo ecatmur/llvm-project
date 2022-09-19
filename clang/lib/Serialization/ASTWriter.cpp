@@ -883,6 +883,7 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(SUBMODULE_TOPHEADER);
   RECORD(SUBMODULE_UMBRELLA_DIR);
   RECORD(SUBMODULE_IMPORTS);
+  RECORD(SUBMODULE_AFFECTING_MODULES);
   RECORD(SUBMODULE_EXPORTS);
   RECORD(SUBMODULE_REQUIRES);
   RECORD(SUBMODULE_EXCLUDED_HEADER);
@@ -1281,7 +1282,12 @@ void ASTWriter::WriteControlBlock(Preprocessor &PP, ASTContext &Context,
     if (auto *AdditionalModMaps =
             Map.getAdditionalModuleMapFiles(WritingModule)) {
       Record.push_back(AdditionalModMaps->size());
-      for (const FileEntry *F : *AdditionalModMaps)
+      SmallVector<const FileEntry *, 1> ModMaps(AdditionalModMaps->begin(),
+                                                AdditionalModMaps->end());
+      llvm::sort(ModMaps, [](const FileEntry *A, const FileEntry *B) {
+        return A->getName() < B->getName();
+      });
+      for (const FileEntry *F : ModMaps)
         AddPath(F->getName(), Record);
     } else {
       Record.push_back(0);
@@ -2863,6 +2869,14 @@ void ASTWriter::WriteSubmodules(Module *WritingModule) {
       for (auto *I : Mod->Imports)
         Record.push_back(getSubmoduleID(I));
       Stream.EmitRecord(SUBMODULE_IMPORTS, Record);
+    }
+
+    // Emit the modules affecting compilation that were not imported.
+    if (!Mod->AffectingModules.empty()) {
+      RecordData Record;
+      for (auto *I : Mod->AffectingModules)
+        Record.push_back(getSubmoduleID(I));
+      Stream.EmitRecord(SUBMODULE_AFFECTING_MODULES, Record);
     }
 
     // Emit the exports.
