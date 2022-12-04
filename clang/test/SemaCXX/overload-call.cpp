@@ -688,3 +688,13 @@ namespace PR19808 {
     f(pmf);
   }
 }
+
+namespace PR54347 {
+  template<class T> void f1(T&, int); // expected-note {{candidate function}}
+  template<class U, class T> void f1(T const&, U); // expected-note {{candidate function}}
+  void g1(int const& i) { f1(i, 0); } // expected-error {{ambiguous}}
+
+  template<class T> void f2(T(&)[5], int); // expected-note {{candidate function}}
+  template<class U, class T> void f2(T const(&)[5], U); // expected-note {{candidate function}}
+  void g2(int const(& a)[5]) { f2(a, 0); } // expected-error {{ambiguous}}
+}
